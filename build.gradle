@@ -1,5 +1,14 @@
 plugins {
     id 'java'
+    id 'application'
+}
+
+application {
+    mainClass = 'com.stockflow.Main'
+}
+
+run {
+    standardInput = System.in
 }
 
 group = 'com.stockflow'
