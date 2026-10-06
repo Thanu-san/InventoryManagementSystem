@@ -4,30 +4,51 @@ A personal Java learning project focused on mastering hands-on Object-Oriented P
 
 ---
 
-## 🎯 Project Mission
-StockFlow is a terminal-based Inventory and Warehouse Management System designed for small business operations:
-- **Product Management:** Track items, categories, suppliers, and pricing.
-- **Inventory Tracking:** Manage stock counts with threshold alerts (Low Stock).
-- **Stock In / Stock Out:** Record physical inventory movements safely.
-- **Audit Log / Transactions:** Complete history of every stock change (who, when, what, quantity).
-- **User & Roles:** Role-Based Access Control (Admin vs. Staff).
+## 🎯 Project Mission & Status
+
+StockFlow is a console-based Inventory and Warehouse Management System built incrementally to understand real-world Java development.
+
+### Feature Status
+
+#### ✅ Implemented (Vertical Slice #1)
+- **Product Management:**
+  - Create new product with domain encapsulation (`Product`).
+  - Business rule validations in `ProductService` (non-blank SKU/Name, price $\ge 0$, quantity $\ge 0$, min stock $\ge 0$, unique SKU).
+  - List products in a readable console table format.
+- **In-Memory Storage:**
+  - `ProductRepository` interface decoupling business logic from persistence.
+  - `InMemoryProductRepository` using `Map<String, Product>` (keyed by SKU).
+- **Console Interface:**
+  - Interactive terminal menu (`ProductController` and `Main`).
+  - Targeted exception handling for user input and business validation errors.
+- **Testing:**
+  - Automated test suite using JUnit 5 (domain encapsulation and service validation rules).
+
+#### 🚧 In Progress
+- Domain integrity and architecture refinement.
+
+#### 📋 Planned (Future Slices)
+- **Database Persistence:** PostgreSQL integration via native JDBC (`JdbcProductRepository`).
+- **Inventory Operations:** Stock In and Stock Out movements with strict business checks.
+- **Audit Logging:** Transaction records tracking who, when, what, and quantity.
+- **Alerts & Reporting:** Low-stock threshold alerts and summary metrics.
+- **Categories & Suppliers:** Categorization and supplier tracking for products.
+- **Security & RBAC:** User authentication, password hashing (jBCrypt), and role permissions (Admin vs. Staff).
 
 ---
 
 ## 🏗️ Architecture
 
-StockFlow follows a clean layered architecture without bloated frameworks:
+StockFlow follows a clean layered architecture:
 
 ```
-View / Console UI (TUI)
+Console UI / TUI (Main, ProductController)
         ↓
-    Controller
+   Service Layer (ProductService - Business Logic & Validation)
         ↓
-     Service  (Business Logic & Validation)
+  Repository Layer (ProductRepository Interface)
         ↓
-   DAO / Repository (JDBC & SQL Queries)
-        ↓
-   PostgreSQL Database
+  Storage Implementation (Current: InMemoryProductRepository | Planned: PostgreSQL JDBC)
 ```
 
 ---
@@ -35,9 +56,8 @@ View / Console UI (TUI)
 ## 🛠️ Technology Stack
 - **Language:** Java 21 (GraalVM JDK 21.0.7)
 - **Build System:** Gradle (Groovy DSL)
-- **Database:** PostgreSQL (Native JDBC)
-- **Testing:** JUnit 5 (Jupiter)
-- **Security:** Password hashing (jBCrypt - coming soon)
+- **Testing:** JUnit 5 (JUnit BOM 5.10.2)
+- **Database (Planned):** PostgreSQL via Native JDBC
 
 ---
 
@@ -55,4 +75,9 @@ View / Console UI (TUI)
 ### Run Tests
 ```bash
 ./gradlew test
+```
+
+### Run the Console Application
+```bash
+./gradlew run --console=plain
 ```

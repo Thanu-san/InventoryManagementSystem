@@ -86,8 +86,6 @@ public class ProductController {
             System.out.println("Success: Product created successfully! ID: " + created.getId());
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
-        } catch (Exception e) {
-            System.out.println("Unexpected Error: " + e.getMessage());
         }
     }
 
