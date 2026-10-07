@@ -305,4 +305,15 @@ class ProductServiceTest {
         assertEquals("Mouse", remaining.get().getName());
         assertEquals(1, productService.getAllProducts().size());
     }
+
+    @Test
+    @DisplayName("Should successfully delete product when SKU has surrounding spaces")
+    void shouldDeleteProductWhenSkuHasSurroundingSpaces() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        productService.deleteProductBySku("  SKU-001  ");
+
+        Optional<Product> found = productService.findProductBySku("SKU-001");
+        assertTrue(found.isEmpty());
+    }
 }

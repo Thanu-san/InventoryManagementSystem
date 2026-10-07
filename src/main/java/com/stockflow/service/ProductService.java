@@ -78,18 +78,17 @@ public class ProductService {
 
     /**
      * Deletes a product by its SKU.
-     * Validates that the SKU is not blank and that the product exists.
+     * Validates that the SKU is not blank and performs a single delete operation through the repository.
      */
     public void deleteProductBySku(String sku) {
         if (sku == null || sku.trim().isEmpty()) {
             throw new ValidationException("Product SKU cannot be blank.");
         }
 
-        if (!productRepository.existsBySku(sku.trim())) {
+        boolean deleted = productRepository.deleteBySku(sku.trim());
+        if (!deleted) {
             throw new ValidationException("Product not found with SKU: " + sku.trim());
         }
-
-        productRepository.deleteBySku(sku.trim());
     }
 
     /**
