@@ -33,7 +33,8 @@ public class ProductController {
             System.out.println("1. Add Product");
             System.out.println("2. List Products");
             System.out.println("3. Find Product by SKU");
-            System.out.println("4. Back to Main Menu");
+            System.out.println("4. Update Product");
+            System.out.println("5. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -41,7 +42,8 @@ public class ProductController {
                 case "1" -> handleAddProduct();
                 case "2" -> handleListProducts();
                 case "3" -> handleFindProductBySku();
-                case "4" -> back = true;
+                case "4" -> handleUpdateProduct();
+                case "5" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -138,6 +140,65 @@ public class ProductController {
             } else {
                 System.out.println("Product not found with SKU: " + sku.trim());
             }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        }
+    }
+
+    private void handleUpdateProduct() {
+        System.out.println("\n[ Update Product ]");
+        System.out.print("Enter SKU of product to update: ");
+        String sku = scanner.nextLine();
+
+        Optional<Product> productOpt;
+        try {
+            productOpt = productService.findProductBySku(sku);
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+            return;
+        }
+
+        if (productOpt.isEmpty()) {
+            System.out.println("Product not found with SKU: " + (sku != null ? sku.trim() : ""));
+            return;
+        }
+
+        Product current = productOpt.get();
+        System.out.println("\nCurrent Product:");
+        System.out.println("-------------------------");
+        System.out.println("ID: " + current.getId());
+        System.out.println("SKU: " + current.getSku());
+        System.out.println("Name: " + current.getName());
+        System.out.printf("Price: $%.2f%n", current.getPrice());
+        System.out.println("Quantity: " + current.getQuantity());
+        System.out.println("Minimum Stock: " + current.getMinimumStock());
+        System.out.println("-------------------------");
+
+        System.out.print("Enter new name: ");
+        String newName = scanner.nextLine();
+
+        BigDecimal newPrice;
+        try {
+            System.out.print("Enter new price: ");
+            String priceInput = scanner.nextLine().trim();
+            newPrice = new BigDecimal(priceInput);
+        } catch (NumberFormatException e) {
+            System.out.println("Error: Price must be a valid number (e.g. 19.99).");
+            return;
+        }
+
+        int newMinimumStock;
+        try {
+            System.out.print("Enter new minimum stock: ");
+            newMinimumStock = Integer.parseInt(scanner.nextLine().trim());
+        } catch (NumberFormatException e) {
+            System.out.println("Error: Minimum stock must be a valid whole number.");
+            return;
+        }
+
+        try {
+            productService.updateProduct(sku, newName, newPrice, newMinimumStock);
+            System.out.println("Product updated successfully.");
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
         }

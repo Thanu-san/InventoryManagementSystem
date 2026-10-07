@@ -16,6 +16,7 @@ StockFlow is a console-based Inventory and Warehouse Management System built inc
   - Business rule validations in `ProductService` (non-blank SKU/Name, price $\ge 0$, quantity $\ge 0$, min stock $\ge 0$, unique SKU).
   - List products in a readable console table format.
   - Find product by SKU with `Optional` handling and formatted details display.
+  - Update Product (name, price, minimum stock) while preserving ID, SKU, and quantity invariants.
 - **In-Memory Storage:**
   - `ProductRepository` interface decoupling business logic from persistence.
   - `InMemoryProductRepository` using `Map<String, Product>` (keyed by SKU).

@@ -48,6 +48,35 @@ public class ProductService {
     }
 
     /**
+     * Updates editable fields (name, price, minimumStock) of an existing product.
+     * Preserves ID, SKU, and quantity invariants.
+     */
+    public Product updateProduct(String sku, String name, BigDecimal price, int minimumStock) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        if (name == null || name.trim().isEmpty()) {
+            throw new ValidationException("Product name cannot be blank.");
+        }
+        if (price == null || price.compareTo(BigDecimal.ZERO) < 0) {
+            throw new ValidationException("Product price must be greater than or equal to 0.");
+        }
+        if (minimumStock < 0) {
+            throw new ValidationException("Minimum stock must be greater than or equal to 0.");
+        }
+
+        product.setName(name);
+        product.setPrice(price);
+        product.setMinimumStock(minimumStock);
+
+        return productRepository.save(product);
+    }
+
+    /**
      * Centralized validation of business rules for product creation.
      */
     private void validateProductData(String sku, String name, BigDecimal price, int quantity, int minimumStock) {

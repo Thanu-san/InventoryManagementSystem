@@ -150,4 +150,104 @@ class ProductServiceTest {
         assertTrue(result.isPresent());
         assertEquals("SKU-001", result.get().getSku());
     }
+
+    @Test
+    @DisplayName("Should successfully update product name")
+    void shouldUpdateProductNameSuccessfully() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        Product updated = productService.updateProduct("SKU-001", "Mechanical Keyboard", new BigDecimal("25.00"), 5);
+
+        assertEquals("Mechanical Keyboard", updated.getName());
+    }
+
+    @Test
+    @DisplayName("Should successfully update product price")
+    void shouldUpdateProductPriceSuccessfully() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        Product updated = productService.updateProduct("SKU-001", "Keyboard", new BigDecimal("35.00"), 5);
+
+        assertEquals(new BigDecimal("35.00"), updated.getPrice());
+    }
+
+    @Test
+    @DisplayName("Should successfully update minimum stock")
+    void shouldUpdateMinimumStockSuccessfully() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        Product updated = productService.updateProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 8);
+
+        assertEquals(8, updated.getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should update multiple editable fields while preserving ID, SKU, and Quantity")
+    void shouldUpdateMultipleFieldsAndPreserveInvariants() {
+        Product original = productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+        Long originalId = original.getId();
+
+        Product updated = productService.updateProduct("SKU-001", "Pro Keyboard", new BigDecimal("49.99"), 2);
+
+        // Editable fields are updated
+        assertEquals("Pro Keyboard", updated.getName());
+        assertEquals(new BigDecimal("49.99"), updated.getPrice());
+        assertEquals(2, updated.getMinimumStock());
+
+        // Invariant fields remain strictly unchanged
+        assertEquals(originalId, updated.getId());
+        assertEquals("SKU-001", updated.getSku());
+        assertEquals(10, updated.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when updating non-existent SKU")
+    void shouldFailWhenUpdatingNonExistentSku() {
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.updateProduct("SKU-999", "Mouse", new BigDecimal("15.00"), 2)
+        );
+        assertTrue(exception.getMessage().contains("Product not found"));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when updating with blank SKU")
+    void shouldFailWhenUpdatingWithBlankSku() {
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.updateProduct("   ", "Mouse", new BigDecimal("15.00"), 2)
+        );
+        assertTrue(exception.getMessage().contains("SKU cannot be blank"));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when updating with blank name")
+    void shouldFailWhenUpdatingWithBlankName() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.updateProduct("SKU-001", "   ", new BigDecimal("25.00"), 5)
+        );
+        assertTrue(exception.getMessage().contains("name cannot be blank"));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when updating with negative price")
+    void shouldFailWhenUpdatingWithNegativePrice() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.updateProduct("SKU-001", "Keyboard", new BigDecimal("-1.00"), 5)
+        );
+        assertTrue(exception.getMessage().contains("price must be greater than or equal to 0"));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when updating with negative minimum stock")
+    void shouldFailWhenUpdatingWithNegativeMinimumStock() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.updateProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), -1)
+        );
+        assertTrue(exception.getMessage().contains("Minimum stock must be greater than or equal to 0"));
+    }
 }
