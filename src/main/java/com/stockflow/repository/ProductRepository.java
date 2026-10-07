@@ -30,4 +30,10 @@ public interface ProductRepository {
      * Returns all stored products.
      */
     List<Product> findAll();
+
+    /**
+     * Deletes a product by its SKU.
+     * Returns true if the product was found and removed, false otherwise.
+     */
+    boolean deleteBySku(String sku);
 }

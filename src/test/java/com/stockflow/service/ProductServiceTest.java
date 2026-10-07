@@ -250,4 +250,59 @@ class ProductServiceTest {
         );
         assertTrue(exception.getMessage().contains("Minimum stock must be greater than or equal to 0"));
     }
+
+    @Test
+    @DisplayName("Should successfully delete existing product by SKU")
+    void shouldDeleteExistingProductBySku() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        productService.deleteProductBySku("SKU-001");
+
+        Optional<Product> found = productService.findProductBySku("SKU-001");
+        assertTrue(found.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when deleting non-existent SKU")
+    void shouldFailWhenDeletingNonExistentSku() {
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.deleteProductBySku("SKU-999")
+        );
+        assertTrue(exception.getMessage().contains("Product not found"));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when deleting with blank SKU")
+    void shouldFailWhenDeletingWithBlankSku() {
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.deleteProductBySku("   ")
+        );
+        assertTrue(exception.getMessage().contains("SKU cannot be blank"));
+    }
+
+    @Test
+    @DisplayName("Should verify deleted product is removed from product listing")
+    void shouldRemoveDeletedProductFromAllProducts() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+        assertEquals(1, productService.getAllProducts().size());
+
+        productService.deleteProductBySku("SKU-001");
+
+        assertEquals(0, productService.getAllProducts().size());
+    }
+
+    @Test
+    @DisplayName("Should not affect other products when one product is deleted")
+    void shouldNotAffectOtherProductsWhenOneIsDeleted() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+        productService.createProduct("SKU-002", "Mouse", new BigDecimal("15.00"), 20, 5);
+
+        productService.deleteProductBySku("SKU-001");
+
+        assertTrue(productService.findProductBySku("SKU-001").isEmpty());
+        Optional<Product> remaining = productService.findProductBySku("SKU-002");
+        assertTrue(remaining.isPresent());
+        assertEquals("Mouse", remaining.get().getName());
+        assertEquals(1, productService.getAllProducts().size());
+    }
 }

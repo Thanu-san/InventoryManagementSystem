@@ -47,4 +47,12 @@ public class InMemoryProductRepository implements ProductRepository {
     public List<Product> findAll() {
         return new ArrayList<>(productsBySku.values());
     }
+
+    @Override
+    public boolean deleteBySku(String sku) {
+        if (sku == null) {
+            return false;
+        }
+        return productsBySku.remove(sku.trim()) != null;
+    }
 }

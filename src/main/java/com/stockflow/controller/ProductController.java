@@ -34,7 +34,8 @@ public class ProductController {
             System.out.println("2. List Products");
             System.out.println("3. Find Product by SKU");
             System.out.println("4. Update Product");
-            System.out.println("5. Back to Main Menu");
+            System.out.println("5. Delete Product");
+            System.out.println("6. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -43,7 +44,8 @@ public class ProductController {
                 case "2" -> handleListProducts();
                 case "3" -> handleFindProductBySku();
                 case "4" -> handleUpdateProduct();
-                case "5" -> back = true;
+                case "5" -> handleDeleteProduct();
+                case "6" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -201,6 +203,58 @@ public class ProductController {
             System.out.println("Product updated successfully.");
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        }
+    }
+
+    private void handleDeleteProduct() {
+        System.out.println("\n[ Delete Product ]");
+        System.out.print("Enter SKU of product to delete: ");
+        String sku = scanner.nextLine();
+
+        Optional<Product> productOpt;
+        try {
+            productOpt = productService.findProductBySku(sku);
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+            return;
+        }
+
+        if (productOpt.isEmpty()) {
+            System.out.println("Product not found with SKU: " + (sku != null ? sku.trim() : ""));
+            return;
+        }
+
+        Product p = productOpt.get();
+        System.out.println("\nProduct to Delete:");
+        System.out.println("-------------------------");
+        System.out.println("ID: " + p.getId());
+        System.out.println("SKU: " + p.getSku());
+        System.out.println("Name: " + p.getName());
+        System.out.printf("Price: $%.2f%n", p.getPrice());
+        System.out.println("Quantity: " + p.getQuantity());
+        System.out.println("Minimum Stock: " + p.getMinimumStock());
+        System.out.println("-------------------------");
+
+        while (true) {
+            System.out.print("Are you sure you want to delete this product? (y/n): ");
+            if (!scanner.hasNextLine()) {
+                break;
+            }
+            String confirm = scanner.nextLine().trim();
+            if (confirm.equalsIgnoreCase("y")) {
+                try {
+                    productService.deleteProductBySku(sku);
+                    System.out.println("Product deleted successfully.");
+                } catch (ValidationException e) {
+                    System.out.println("Validation Error: " + e.getMessage());
+                }
+                break;
+            } else if (confirm.equalsIgnoreCase("n")) {
+                System.out.println("Delete cancelled.");
+                break;
+            } else {
+                System.out.println("Please enter Y or N.");
+            }
         }
     }
 }

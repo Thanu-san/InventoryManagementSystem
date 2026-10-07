@@ -77,6 +77,22 @@ public class ProductService {
     }
 
     /**
+     * Deletes a product by its SKU.
+     * Validates that the SKU is not blank and that the product exists.
+     */
+    public void deleteProductBySku(String sku) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+
+        if (!productRepository.existsBySku(sku.trim())) {
+            throw new ValidationException("Product not found with SKU: " + sku.trim());
+        }
+
+        productRepository.deleteBySku(sku.trim());
+    }
+
+    /**
      * Centralized validation of business rules for product creation.
      */
     private void validateProductData(String sku, String name, BigDecimal price, int quantity, int minimumStock) {
