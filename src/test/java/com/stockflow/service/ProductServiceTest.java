@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -108,5 +109,45 @@ class ProductServiceTest {
                 productService.createProduct("MON-01", "Monitor", new BigDecimal("100.00"), 10, -2)
         );
         assertTrue(exception.getMessage().contains("Minimum stock must be greater than or equal to 0"));
+    }
+
+    @Test
+    @DisplayName("Should find product by SKU when product exists")
+    void shouldFindProductBySkuWhenExists() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        Optional<Product> result = productService.findProductBySku("SKU-001");
+
+        assertTrue(result.isPresent());
+        assertEquals("SKU-001", result.get().getSku());
+        assertEquals("Keyboard", result.get().getName());
+    }
+
+    @Test
+    @DisplayName("Should return empty Optional when SKU does not exist")
+    void shouldReturnEmptyWhenSkuDoesNotExist() {
+        Optional<Product> result = productService.findProductBySku("SKU-999");
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when finding by blank SKU")
+    void shouldFailWhenFindingByBlankSku() {
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                productService.findProductBySku("   ")
+        );
+        assertTrue(exception.getMessage().contains("SKU cannot be blank"));
+    }
+
+    @Test
+    @DisplayName("Should find product by SKU when input has surrounding spaces")
+    void shouldFindProductBySkuWithSurroundingSpaces() {
+        productService.createProduct("SKU-001", "Keyboard", new BigDecimal("25.00"), 10, 5);
+
+        Optional<Product> result = productService.findProductBySku("  SKU-001  ");
+
+        assertTrue(result.isPresent());
+        assertEquals("SKU-001", result.get().getSku());
     }
 }

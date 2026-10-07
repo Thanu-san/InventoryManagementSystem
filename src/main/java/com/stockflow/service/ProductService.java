@@ -6,6 +6,7 @@ import com.stockflow.repository.ProductRepository;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service layer responsible for business logic, validation, and coordinating data storage.
@@ -33,6 +34,17 @@ public class ProductService {
      */
     public List<Product> getAllProducts() {
         return productRepository.findAll();
+    }
+
+    /**
+     * Finds a product by its SKU.
+     * Validates that the input SKU is not blank and normalizes surrounding spaces.
+     */
+    public Optional<Product> findProductBySku(String sku) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+        return productRepository.findBySku(sku.trim());
     }
 
     /**

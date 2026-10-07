@@ -6,6 +6,7 @@ import com.stockflow.service.ProductService;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.Scanner;
 
 /**
@@ -31,14 +32,16 @@ public class ProductController {
             System.out.println("\n--- Product Management ---");
             System.out.println("1. Add Product");
             System.out.println("2. List Products");
-            System.out.println("3. Back to Main Menu");
+            System.out.println("3. Find Product by SKU");
+            System.out.println("4. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
             switch (choice) {
                 case "1" -> handleAddProduct();
                 case "2" -> handleListProducts();
-                case "3" -> back = true;
+                case "3" -> handleFindProductBySku();
+                case "4" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -111,6 +114,32 @@ public class ProductController {
                     p.getPrice(),
                     p.getQuantity(),
                     p.getMinimumStock());
+        }
+    }
+
+    private void handleFindProductBySku() {
+        System.out.println("\n[ Find Product by SKU ]");
+        System.out.print("Enter SKU: ");
+        String sku = scanner.nextLine();
+
+        try {
+            Optional<Product> productOpt = productService.findProductBySku(sku);
+            if (productOpt.isPresent()) {
+                Product p = productOpt.get();
+                System.out.println("\nProduct Found:");
+                System.out.println("-------------------------");
+                System.out.println("ID: " + p.getId());
+                System.out.println("SKU: " + p.getSku());
+                System.out.println("Name: " + p.getName());
+                System.out.printf("Price: $%.2f%n", p.getPrice());
+                System.out.println("Quantity: " + p.getQuantity());
+                System.out.println("Minimum Stock: " + p.getMinimumStock());
+                System.out.println("-------------------------");
+            } else {
+                System.out.println("Product not found with SKU: " + sku.trim());
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
         }
     }
 }
