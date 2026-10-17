@@ -198,6 +198,64 @@ class JdbcProductRepositoryTest {
     }
 
     @Test
+    @DisplayName("Should successfully update product name, price, and minimum stock while preserving ID, SKU, and quantity")
+    void shouldUpdateExistingProductAndPreserveInvariants() {
+        Product original = new Product(
+                testSku,
+                "Original Wireless Mouse",
+                new BigDecimal("29.99"),
+                50,
+                5
+        );
+        Product saved = repository.save(original);
+        Long originalId = saved.getId();
+
+        // Create updated product representation with different editable fields AND different quantity/id
+        // to verify that quantity and ID in the database cannot be overwritten by update()
+        Product toUpdate = new Product(
+                999999L,
+                testSku,
+                "Upgraded Wireless Mouse Pro",
+                new BigDecimal("39.99"),
+                100, // Different quantity
+                10   // Updated minimum stock
+        );
+
+        boolean updated = repository.update(toUpdate);
+        assertTrue(updated, "update() should return true when an existing product row is updated");
+
+        // Verify state in PostgreSQL database
+        Optional<Product> foundOpt = repository.findBySku(testSku);
+        assertTrue(foundOpt.isPresent(), "Product should be found in database after update");
+
+        Product fromDb = foundOpt.get();
+        // Editable fields must be updated
+        assertEquals("Upgraded Wireless Mouse Pro", fromDb.getName());
+        assertEquals(new BigDecimal("39.99"), fromDb.getPrice());
+        assertEquals(10, fromDb.getMinimumStock());
+
+        // Invariants must remain unchanged in database
+        assertEquals(originalId, fromDb.getId(), "Database ID must remain unchanged");
+        assertEquals(testSku, fromDb.getSku(), "Product SKU must remain unchanged");
+        assertEquals(50, fromDb.getQuantity(), "Quantity must remain unchanged");
+    }
+
+    @Test
+    @DisplayName("Should return false when attempting to update a nonexistent SKU")
+    void shouldReturnFalseWhenUpdatingNonexistentSku() {
+        Product nonexistentProduct = new Product(
+                "NON-EXISTENT-" + System.currentTimeMillis(),
+                "Nonexistent Item",
+                new BigDecimal("19.99"),
+                10,
+                2
+        );
+
+        boolean updated = repository.update(nonexistentProduct);
+        assertFalse(updated, "update() should return false when no matching row was updated");
+    }
+
+    @Test
     @DisplayName("Should throw UnsupportedOperationException for remaining unimplemented methods")
     void shouldThrowForUnimplementedMethods() {
         assertThrows(UnsupportedOperationException.class, () -> repository.deleteBySku("ANY"));

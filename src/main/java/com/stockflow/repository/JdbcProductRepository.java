@@ -123,6 +123,25 @@ public class JdbcProductRepository implements ProductRepository {
         }
     }
 
+    private static final String UPDATE_SQL =
+            "UPDATE products SET name = ?, price = ?, minimum_stock = ? WHERE sku = ?";
+
+    public boolean update(Product product) {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(UPDATE_SQL)) {
+
+            statement.setString(1, product.getName());
+            statement.setBigDecimal(2, product.getPrice());
+            statement.setInt(3, product.getMinimumStock());
+            statement.setString(4, product.getSku());
+
+            int rowsAffected = statement.executeUpdate();
+            return rowsAffected > 0;
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while updating product: " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public boolean deleteBySku(String sku) {
         throw new UnsupportedOperationException("deleteBySku() is not implemented yet in Phase 3.5");
