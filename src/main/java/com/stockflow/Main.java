@@ -1,7 +1,7 @@
 package com.stockflow;
 
 import com.stockflow.controller.ProductController;
-import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.JdbcProductRepository;
 import com.stockflow.repository.ProductRepository;
 import com.stockflow.service.ProductService;
 
@@ -17,7 +17,7 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
 
         // 1. Dependency wiring: Repository -> Service -> Controller
-        ProductRepository productRepository = new InMemoryProductRepository();
+        ProductRepository productRepository = new JdbcProductRepository();
         ProductService productService = new ProductService(productRepository);
         ProductController productController = new ProductController(productService, scanner);
 
