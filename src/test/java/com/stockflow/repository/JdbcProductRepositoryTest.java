@@ -96,9 +96,33 @@ class JdbcProductRepositoryTest {
     }
 
     @Test
+    @DisplayName("Should return true when checking existence of existing SKU")
+    void shouldReturnTrueWhenSkuExists() {
+        Product product = new Product(
+                testSku,
+                "Test Mechanical Keyboard",
+                new BigDecimal("89.99"),
+                15,
+                3
+        );
+        repository.save(product);
+
+        boolean exists = repository.existsBySku(testSku);
+
+        assertTrue(exists, "existsBySku should return true for existing product");
+    }
+
+    @Test
+    @DisplayName("Should return false when checking existence of nonexistent SKU")
+    void shouldReturnFalseWhenSkuDoesNotExist() {
+        boolean exists = repository.existsBySku("NON-EXISTENT-" + System.currentTimeMillis());
+
+        assertFalse(exists, "existsBySku should return false for nonexistent product");
+    }
+
+    @Test
     @DisplayName("Should throw UnsupportedOperationException for remaining unimplemented methods")
     void shouldThrowForUnimplementedMethods() {
-        assertThrows(UnsupportedOperationException.class, () -> repository.existsBySku("ANY"));
         assertThrows(UnsupportedOperationException.class, () -> repository.findAll());
         assertThrows(UnsupportedOperationException.class, () -> repository.deleteBySku("ANY"));
     }

@@ -81,9 +81,25 @@ public class JdbcProductRepository implements ProductRepository {
         );
     }
 
+    private static final String EXISTS_BY_SKU_SQL =
+            "SELECT EXISTS (SELECT 1 FROM products WHERE sku = ?)";
+
     @Override
     public boolean existsBySku(String sku) {
-        throw new UnsupportedOperationException("existsBySku() is not implemented yet in Phase 3.5");
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(EXISTS_BY_SKU_SQL)) {
+
+            statement.setString(1, sku);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getBoolean(1);
+                }
+                return false;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while checking if product exists by SKU: " + e.getMessage(), e);
+        }
     }
 
     @Override
