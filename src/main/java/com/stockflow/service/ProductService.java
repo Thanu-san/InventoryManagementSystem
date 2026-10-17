@@ -73,7 +73,12 @@ public class ProductService {
         product.setPrice(price);
         product.setMinimumStock(minimumStock);
 
-        return productRepository.save(product);
+        boolean updated = productRepository.update(product);
+        if (!updated) {
+            throw new ValidationException("Product not found with SKU: " + sku.trim());
+        }
+
+        return product;
     }
 
     /**

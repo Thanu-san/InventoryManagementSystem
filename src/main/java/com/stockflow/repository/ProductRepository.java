@@ -32,6 +32,12 @@ public interface ProductRepository {
     List<Product> findAll();
 
     /**
+     * Updates editable fields of an existing product.
+     * Returns true if the product was found and updated, false otherwise.
+     */
+    boolean update(Product product);
+
+    /**
      * Deletes a product by its SKU.
      * Returns true if the product was found and removed, false otherwise.
      */

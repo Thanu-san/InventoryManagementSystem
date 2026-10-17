@@ -2,6 +2,7 @@ package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
 import com.stockflow.model.Product;
+import com.stockflow.service.ProductService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -253,6 +254,27 @@ class JdbcProductRepositoryTest {
 
         boolean updated = repository.update(nonexistentProduct);
         assertFalse(updated, "update() should return false when no matching row was updated");
+    }
+
+    @Test
+    @DisplayName("Should successfully update product via ProductService using JdbcProductRepository")
+    void shouldSuccessfullyUpdateProductViaServiceWithJdbcRepository() {
+        ProductService service = new ProductService(repository);
+        service.createProduct(testSku, "Original via Service", new BigDecimal("15.00"), 20, 5);
+
+        Product updated = service.updateProduct(testSku, "Updated via Service", new BigDecimal("25.00"), 8);
+
+        assertEquals("Updated via Service", updated.getName());
+        assertEquals(new BigDecimal("25.00"), updated.getPrice());
+        assertEquals(8, updated.getMinimumStock());
+
+        Optional<Product> foundOpt = repository.findBySku(testSku);
+        assertTrue(foundOpt.isPresent());
+        Product fromDb = foundOpt.get();
+        assertEquals("Updated via Service", fromDb.getName());
+        assertEquals(new BigDecimal("25.00"), fromDb.getPrice());
+        assertEquals(8, fromDb.getMinimumStock());
+        assertEquals(20, fromDb.getQuantity(), "Quantity must remain untouched");
     }
 
     @Test

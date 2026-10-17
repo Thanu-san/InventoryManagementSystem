@@ -49,6 +49,19 @@ public class InMemoryProductRepository implements ProductRepository {
     }
 
     @Override
+    public boolean update(Product product) {
+        if (product == null || product.getSku() == null) {
+            return false;
+        }
+        String key = product.getSku().trim();
+        if (!productsBySku.containsKey(key)) {
+            return false;
+        }
+        productsBySku.put(key, product);
+        return true;
+    }
+
+    @Override
     public boolean deleteBySku(String sku) {
         if (sku == null) {
             return false;

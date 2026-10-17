@@ -316,4 +316,22 @@ class ProductServiceTest {
         Optional<Product> found = productService.findProductBySku("SKU-001");
         assertTrue(found.isEmpty());
     }
+
+    @Test
+    @DisplayName("Should throw ValidationException when repository update returns false")
+    void shouldFailWhenRepositoryUpdateFails() {
+        ProductRepository failingRepo = new InMemoryProductRepository() {
+            @Override
+            public boolean update(Product product) {
+                return false;
+            }
+        };
+        ProductService serviceWithFailingRepo = new ProductService(failingRepo);
+        failingRepo.save(new Product("SKU-FAIL", "Fail Item", new BigDecimal("10.00"), 5, 1));
+
+        ValidationException exception = assertThrows(ValidationException.class, () ->
+                serviceWithFailingRepo.updateProduct("SKU-FAIL", "New Name", new BigDecimal("12.00"), 2)
+        );
+        assertTrue(exception.getMessage().contains("Product not found with SKU: SKU-FAIL"));
+    }
 }

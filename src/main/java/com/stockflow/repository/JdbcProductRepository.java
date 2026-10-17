@@ -126,6 +126,7 @@ public class JdbcProductRepository implements ProductRepository {
     private static final String UPDATE_SQL =
             "UPDATE products SET name = ?, price = ?, minimum_stock = ? WHERE sku = ?";
 
+    @Override
     public boolean update(Product product) {
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement(UPDATE_SQL)) {
