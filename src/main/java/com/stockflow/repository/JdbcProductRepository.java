@@ -8,6 +8,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -102,9 +103,24 @@ public class JdbcProductRepository implements ProductRepository {
         }
     }
 
+    private static final String SELECT_ALL_SQL =
+            "SELECT id, sku, name, price, quantity, minimum_stock FROM products ORDER BY id";
+
     @Override
     public List<Product> findAll() {
-        throw new UnsupportedOperationException("findAll() is not implemented yet in Phase 3.5");
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SELECT_ALL_SQL);
+             ResultSet resultSet = statement.executeQuery()) {
+
+            List<Product> products = new ArrayList<>();
+            while (resultSet.next()) {
+                Product product = mapRowToProduct(resultSet);
+                products.add(product);
+            }
+            return products;
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while retrieving all products: " + e.getMessage(), e);
+        }
     }
 
     @Override
