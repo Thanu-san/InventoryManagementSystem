@@ -142,8 +142,20 @@ public class JdbcProductRepository implements ProductRepository {
         }
     }
 
+    private static final String DELETE_BY_SKU_SQL =
+            "DELETE FROM products WHERE sku = ?";
+
     @Override
     public boolean deleteBySku(String sku) {
-        throw new UnsupportedOperationException("deleteBySku() is not implemented yet in Phase 3.5");
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(DELETE_BY_SKU_SQL)) {
+
+            statement.setString(1, sku);
+
+            int rowsAffected = statement.executeUpdate();
+            return rowsAffected > 0;
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while deleting product by SKU: " + e.getMessage(), e);
+        }
     }
 }

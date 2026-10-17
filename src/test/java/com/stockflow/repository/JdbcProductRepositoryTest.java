@@ -256,8 +256,35 @@ class JdbcProductRepositoryTest {
     }
 
     @Test
-    @DisplayName("Should throw UnsupportedOperationException for remaining unimplemented methods")
-    void shouldThrowForUnimplementedMethods() {
-        assertThrows(UnsupportedOperationException.class, () -> repository.deleteBySku("ANY"));
+    @DisplayName("Should successfully delete existing product by SKU")
+    void shouldSuccessfullyDeleteExistingProductBySku() {
+        Product product = new Product(
+                testSku,
+                "Product To Delete",
+                new BigDecimal("15.50"),
+                10,
+                2
+        );
+        repository.save(product);
+
+        // Verify product was inserted
+        assertTrue(repository.existsBySku(testSku), "Product should exist before deletion");
+
+        // Execute delete
+        boolean deleted = repository.deleteBySku(testSku);
+        assertTrue(deleted, "deleteBySku() should return true when a product was deleted");
+
+        // Verify product is no longer in the database
+        assertFalse(repository.existsBySku(testSku), "Product should no longer exist in database");
+        Optional<Product> foundOpt = repository.findBySku(testSku);
+        assertTrue(foundOpt.isEmpty(), "findBySku() should return empty for deleted product");
+    }
+
+    @Test
+    @DisplayName("Should return false when attempting to delete a nonexistent SKU")
+    void shouldReturnFalseWhenDeletingNonexistentSku() {
+        boolean deleted = repository.deleteBySku("NON-EXISTENT-" + System.currentTimeMillis());
+
+        assertFalse(deleted, "deleteBySku() should return false when no product matched the SKU");
     }
 }
