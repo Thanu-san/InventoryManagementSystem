@@ -48,9 +48,37 @@ public class JdbcProductRepository implements ProductRepository {
         }
     }
 
+    private static final String SELECT_BY_SKU_SQL =
+            "SELECT id, sku, name, price, quantity, minimum_stock FROM products WHERE sku = ?";
+
     @Override
     public Optional<Product> findBySku(String sku) {
-        throw new UnsupportedOperationException("findBySku() is not implemented yet in Phase 3.5");
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SELECT_BY_SKU_SQL)) {
+
+            statement.setString(1, sku);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    Product product = mapRowToProduct(resultSet);
+                    return Optional.of(product);
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while finding product by SKU: " + e.getMessage(), e);
+        }
+    }
+
+    private Product mapRowToProduct(ResultSet rs) throws SQLException {
+        return new Product(
+                rs.getLong("id"),
+                rs.getString("sku"),
+                rs.getString("name"),
+                rs.getBigDecimal("price"),
+                rs.getInt("quantity"),
+                rs.getInt("minimum_stock")
+        );
     }
 
     @Override

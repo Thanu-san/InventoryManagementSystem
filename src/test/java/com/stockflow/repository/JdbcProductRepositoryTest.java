@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -63,9 +64,40 @@ class JdbcProductRepositoryTest {
     }
 
     @Test
-    @DisplayName("Should throw UnsupportedOperationException for unimplemented methods in Phase 3.5")
+    @DisplayName("Should successfully find an existing product by SKU with all fields mapped")
+    void shouldFindExistingProductBySku() {
+        Product product = new Product(
+                testSku,
+                "Test Mechanical Keyboard",
+                new BigDecimal("89.99"),
+                15,
+                3
+        );
+        Product savedProduct = repository.save(product);
+
+        Optional<Product> foundOpt = repository.findBySku(testSku);
+
+        assertTrue(foundOpt.isPresent(), "Product should be found by its SKU");
+        Product found = foundOpt.get();
+        assertEquals(savedProduct.getId(), found.getId(), "ID should match generated database ID");
+        assertEquals(testSku, found.getSku(), "SKU should match");
+        assertEquals("Test Mechanical Keyboard", found.getName(), "Name should match");
+        assertEquals(new BigDecimal("89.99"), found.getPrice(), "Price should match");
+        assertEquals(15, found.getQuantity(), "Quantity should match");
+        assertEquals(3, found.getMinimumStock(), "Minimum stock should match");
+    }
+
+    @Test
+    @DisplayName("Should return empty Optional when searching for nonexistent SKU")
+    void shouldReturnEmptyOptionalWhenSkuDoesNotExist() {
+        Optional<Product> foundOpt = repository.findBySku("NON-EXISTENT-" + System.currentTimeMillis());
+
+        assertTrue(foundOpt.isEmpty(), "Should return Optional.empty() for nonexistent SKU");
+    }
+
+    @Test
+    @DisplayName("Should throw UnsupportedOperationException for remaining unimplemented methods")
     void shouldThrowForUnimplementedMethods() {
-        assertThrows(UnsupportedOperationException.class, () -> repository.findBySku("ANY"));
         assertThrows(UnsupportedOperationException.class, () -> repository.existsBySku("ANY"));
         assertThrows(UnsupportedOperationException.class, () -> repository.findAll());
         assertThrows(UnsupportedOperationException.class, () -> repository.deleteBySku("ANY"));
