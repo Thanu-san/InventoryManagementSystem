@@ -20,10 +20,17 @@ public class InMemoryProductRepository implements ProductRepository {
 
     @Override
     public Product save(Product product) {
+        if (product == null || product.getSku() == null || product.getSku().isBlank()) {
+            throw new IllegalArgumentException("Product and its SKU cannot be null or blank.");
+        }
+        String key = product.getSku().trim();
+        if (productsBySku.containsKey(key)) {
+            throw new IllegalArgumentException("Product with SKU '" + key + "' already exists.");
+        }
         if (product.getId() == null) {
             product.setId(currentId++);
         }
-        productsBySku.put(product.getSku(), product);
+        productsBySku.put(key, product);
         return product;
     }
 
@@ -54,10 +61,14 @@ public class InMemoryProductRepository implements ProductRepository {
             return false;
         }
         String key = product.getSku().trim();
-        if (!productsBySku.containsKey(key)) {
+        Product existing = productsBySku.get(key);
+        if (existing == null) {
             return false;
         }
-        productsBySku.put(key, product);
+
+        existing.setName(product.getName());
+        existing.setPrice(product.getPrice());
+        existing.setMinimumStock(product.getMinimumStock());
         return true;
     }
 
