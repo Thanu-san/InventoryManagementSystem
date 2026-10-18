@@ -23,6 +23,13 @@ public class JdbcProductRepository implements ProductRepository {
 
     @Override
     public Product save(Product product) {
+        if (product == null) {
+            throw new IllegalArgumentException("Product cannot be null.");
+        }
+        if (product.getId() != null) {
+            throw new IllegalArgumentException("Cannot save a product that already has an ID: " + product.getId());
+        }
+
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS)) {
 

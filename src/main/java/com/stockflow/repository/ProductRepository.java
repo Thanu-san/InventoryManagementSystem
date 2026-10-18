@@ -12,7 +12,8 @@ import java.util.Optional;
 public interface ProductRepository {
 
     /**
-     * Saves a product. If it has no ID, assigns an ID and stores it.
+     * Saves a new product. Assigns a generated ID and stores it.
+     * Rejects products that already have an assigned ID.
      */
     Product save(Product product);
 

@@ -104,4 +104,16 @@ class InMemoryProductRepositoryTest {
         assertEquals(10, stored.getQuantity());
         assertEquals(5, stored.getMinimumStock());
     }
+
+    @Test
+    @DisplayName("Should reject save when product already has an assigned ID")
+    void shouldRejectSaveWhenProductAlreadyHasId() {
+        Product productWithId = new Product(99L, "SKU-HAS-ID", "Existing Item", new BigDecimal("15.00"), 10, 2);
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                repository.save(productWithId)
+        );
+        assertTrue(exception.getMessage().contains("already has an ID"));
+        assertTrue(repository.findBySku("SKU-HAS-ID").isEmpty(), "Repository must not store rejected product");
+    }
 }

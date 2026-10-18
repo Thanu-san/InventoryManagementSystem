@@ -69,6 +69,28 @@ class JdbcProductRepositoryTest {
     }
 
     @Test
+    @DisplayName("Should reject save and not insert row into database when product already has an assigned ID")
+    void shouldRejectSaveWhenProductAlreadyHasId() {
+        Product productWithId = new Product(
+                999L,
+                testSku,
+                "Pre-assigned ID Keyboard",
+                new BigDecimal("89.99"),
+                15,
+                3
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                repository.save(productWithId)
+        );
+        assertTrue(exception.getMessage().contains("already has an ID"));
+
+        // Verify that NO row was inserted into PostgreSQL
+        Optional<Product> foundOpt = repository.findBySku(testSku);
+        assertTrue(foundOpt.isEmpty(), "No database row should have been inserted into PostgreSQL");
+    }
+
+    @Test
     @DisplayName("Should successfully find an existing product by SKU with all fields mapped")
     void shouldFindExistingProductBySku() {
         Product product = new Product(

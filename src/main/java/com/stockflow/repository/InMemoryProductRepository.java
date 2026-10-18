@@ -23,13 +23,14 @@ public class InMemoryProductRepository implements ProductRepository {
         if (product == null || product.getSku() == null || product.getSku().isBlank()) {
             throw new IllegalArgumentException("Product and its SKU cannot be null or blank.");
         }
+        if (product.getId() != null) {
+            throw new IllegalArgumentException("Cannot save a product that already has an ID: " + product.getId());
+        }
         String key = product.getSku().trim();
         if (productsBySku.containsKey(key)) {
             throw new IllegalArgumentException("Product with SKU '" + key + "' already exists.");
         }
-        if (product.getId() == null) {
-            product.setId(currentId++);
-        }
+        product.setId(currentId++);
         productsBySku.put(key, product);
         return product;
     }
