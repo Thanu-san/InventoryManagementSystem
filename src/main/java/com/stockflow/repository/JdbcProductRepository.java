@@ -1,6 +1,7 @@
 package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
+import com.stockflow.exception.ValidationException;
 import com.stockflow.model.Product;
 
 import java.sql.Connection;
@@ -163,6 +164,10 @@ public class JdbcProductRepository implements ProductRepository {
             int rowsAffected = statement.executeUpdate();
             return rowsAffected > 0;
         } catch (SQLException e) {
+            if ("23503".equals(e.getSQLState())) {
+                throw new ValidationException(
+                        "Cannot delete product '" + sku + "' because it has associated transaction records.", e);
+            }
             throw new RuntimeException("Database error while deleting product by SKU: " + e.getMessage(), e);
         }
     }

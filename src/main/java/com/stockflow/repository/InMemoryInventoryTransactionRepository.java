@@ -26,6 +26,11 @@ public class InMemoryInventoryTransactionRepository implements InventoryTransact
     }
 
     public InMemoryInventoryTransactionRepository(ProductRepository productRepository) {
+        if (productRepository != null && !(productRepository instanceof InMemoryProductRepository)) {
+            throw new IllegalArgumentException(
+                    "InMemoryInventoryTransactionRepository requires an InMemoryProductRepository, but received: "
+                            + productRepository.getClass().getSimpleName());
+        }
         this.productRepository = productRepository;
     }
 
@@ -41,32 +46,32 @@ public class InMemoryInventoryTransactionRepository implements InventoryTransact
             throw new IllegalArgumentException("Quantity must be greater than zero.");
         }
 
-        if (productRepository != null) {
-            Product product = productRepository.findAll().stream()
-                    .filter(p -> productId.equals(p.getId()))
-                    .findFirst()
-                    .orElseThrow(() -> new ValidationException("Product not found with ID: " + productId));
-
-            int currentQty = product.getQuantity();
-            int newQty;
-
-            if (type == TransactionType.STOCK_IN) {
-                if ((long) currentQty + quantity > Integer.MAX_VALUE) {
-                    throw new ValidationException("Stock In would cause quantity to exceed maximum capacity.");
-                }
-                newQty = currentQty + quantity;
-            } else {
-                if (currentQty < quantity) {
-                    throw new ValidationException(
-                            "Insufficient stock. Available: " + currentQty + ", Requested: " + quantity);
-                }
-                newQty = currentQty - quantity;
-            }
-
-            if (productRepository instanceof InMemoryProductRepository inMemoryRepo) {
-                inMemoryRepo.updateQuantity(productId, newQty);
-            }
+        if (productRepository == null) {
+            throw new IllegalStateException("ProductRepository is not configured for in-memory stock movements.");
         }
+
+        Product product = productRepository.findAll().stream()
+                .filter(p -> productId.equals(p.getId()))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException("Product not found with ID: " + productId));
+
+        int currentQty = product.getQuantity();
+        int newQty;
+
+        if (type == TransactionType.STOCK_IN) {
+            if ((long) currentQty + quantity > Integer.MAX_VALUE) {
+                throw new ValidationException("Stock In would cause quantity to exceed maximum capacity.");
+            }
+            newQty = currentQty + quantity;
+        } else {
+            if (currentQty < quantity) {
+                throw new ValidationException(
+                        "Insufficient stock. Available: " + currentQty + ", Requested: " + quantity);
+            }
+            newQty = currentQty - quantity;
+        }
+
+        ((InMemoryProductRepository) productRepository).updateQuantity(productId, newQty);
 
         InventoryTransaction tx = new InventoryTransaction(currentId++, productId, type, quantity, LocalDateTime.now());
         transactions.add(tx);

@@ -254,6 +254,8 @@ public class ProductController {
                     System.out.println("Product deleted successfully.");
                 } catch (ValidationException e) {
                     System.out.println("Validation Error: " + e.getMessage());
+                } catch (Exception e) {
+                    System.out.println("Error: " + e.getMessage());
                 }
                 break;
             } else if (confirm.equalsIgnoreCase("n")) {

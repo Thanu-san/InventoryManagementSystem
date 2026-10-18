@@ -5,7 +5,10 @@ import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
+import com.stockflow.repository.InMemoryProductRepository;
 import com.stockflow.repository.InventoryTransactionRepository;
+import com.stockflow.repository.JdbcInventoryTransactionRepository;
+import com.stockflow.repository.JdbcProductRepository;
 import com.stockflow.repository.ProductRepository;
 
 import java.math.BigDecimal;
@@ -21,12 +24,33 @@ public class ProductService {
     private final InventoryTransactionRepository transactionRepository;
 
     public ProductService(ProductRepository productRepository) {
-        this(productRepository, new InMemoryInventoryTransactionRepository(productRepository));
+        this(productRepository, productRepository instanceof InMemoryProductRepository inMemoryRepo
+                ? new InMemoryInventoryTransactionRepository(inMemoryRepo)
+                : null);
     }
 
     public ProductService(ProductRepository productRepository, InventoryTransactionRepository transactionRepository) {
+        validateRepositoryCompatibility(productRepository, transactionRepository);
         this.productRepository = productRepository;
         this.transactionRepository = transactionRepository;
+    }
+
+    private static void validateRepositoryCompatibility(ProductRepository productRepo,
+                                                         InventoryTransactionRepository txRepo) {
+        if (productRepo == null) {
+            throw new IllegalArgumentException("Product repository cannot be null.");
+        }
+        if (txRepo == null) {
+            return; // Permitted for Product CRUD-only service operations
+        }
+        if (productRepo instanceof JdbcProductRepository && txRepo instanceof InMemoryInventoryTransactionRepository) {
+            throw new IllegalArgumentException(
+                    "Unsupported repository combination: JdbcProductRepository cannot be paired with InMemoryInventoryTransactionRepository.");
+        }
+        if (productRepo instanceof InMemoryProductRepository && txRepo instanceof JdbcInventoryTransactionRepository) {
+            throw new IllegalArgumentException(
+                    "Unsupported repository combination: InMemoryProductRepository cannot be paired with JdbcInventoryTransactionRepository.");
+        }
     }
 
     /**
@@ -100,6 +124,17 @@ public class ProductService {
             throw new ValidationException("Product SKU cannot be blank.");
         }
 
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        if (transactionRepository != null) {
+            List<InventoryTransaction> history = transactionRepository.findByProductId(product.getId());
+            if (!history.isEmpty()) {
+                throw new ValidationException(
+                        "Cannot delete product '" + sku.trim() + "' because it has recorded inventory transaction history.");
+            }
+        }
+
         boolean deleted = productRepository.deleteBySku(sku.trim());
         if (!deleted) {
             throw new ValidationException("Product not found with SKU: " + sku.trim());
@@ -114,6 +149,8 @@ public class ProductService {
      * @return the created InventoryTransaction
      */
     public InventoryTransaction stockIn(String sku, int quantity) {
+        ensureTransactionRepositoryConfigured();
+
         if (sku == null || sku.trim().isEmpty()) {
             throw new ValidationException("Product SKU cannot be blank.");
         }
@@ -139,6 +176,8 @@ public class ProductService {
      * @return the created InventoryTransaction
      */
     public InventoryTransaction stockOut(String sku, int quantity) {
+        ensureTransactionRepositoryConfigured();
+
         if (sku == null || sku.trim().isEmpty()) {
             throw new ValidationException("Product SKU cannot be blank.");
         }
@@ -164,6 +203,8 @@ public class ProductService {
      * @return list of transactions ordered by createdAt DESC, id DESC
      */
     public List<InventoryTransaction> getTransactionHistory(String sku) {
+        ensureTransactionRepositoryConfigured();
+
         if (sku == null || sku.trim().isEmpty()) {
             throw new ValidationException("Product SKU cannot be blank.");
         }
@@ -172,6 +213,13 @@ public class ProductService {
                 .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
 
         return transactionRepository.findByProductId(product.getId());
+    }
+
+    private void ensureTransactionRepositoryConfigured() {
+        if (transactionRepository == null) {
+            throw new IllegalStateException(
+                    "Stock movements are not supported: no compatible InventoryTransactionRepository is configured for this ProductService.");
+        }
     }
 
     /**

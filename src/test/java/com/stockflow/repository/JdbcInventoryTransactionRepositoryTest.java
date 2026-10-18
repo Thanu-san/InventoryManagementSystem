@@ -5,6 +5,7 @@ import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
+import com.stockflow.service.ProductService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +70,7 @@ class JdbcInventoryTransactionRepositoryTest {
 
     @AfterEach
     void tearDown() {
+        dropTriggerQuietly();
         if (testProduct != null && testProduct.getId() != null) {
             try (Connection conn = DatabaseConnection.getConnection()) {
                 // Delete child transactions first, then delete parent product
@@ -82,6 +84,15 @@ class JdbcInventoryTransactionRepositoryTest {
                 }
             } catch (SQLException ignored) {
             }
+        }
+    }
+
+    private void dropTriggerQuietly() {
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("DROP TRIGGER IF EXISTS trg_test_fail_tx_insert ON inventory_transactions");
+            stmt.execute("DROP FUNCTION IF EXISTS test_fail_tx_insert()");
+        } catch (SQLException ignored) {
         }
     }
 
@@ -167,24 +178,85 @@ class JdbcInventoryTransactionRepositoryTest {
     }
 
     @Test
-    @DisplayName("Should rollback transaction when failure occurs during execution")
-    void shouldRollbackWhenFailureOccurs() {
-        // Test repository instance that simulates a failure after update
-        JdbcInventoryTransactionRepository failingRepo = new JdbcInventoryTransactionRepository() {
-            @Override
-            public InventoryTransaction recordMovement(Long productId, TransactionType type, int quantity) {
-                // We test the rollback mechanism by verifying the atomic method rolls back on failure
-                return super.recordMovement(productId, type, quantity);
-            }
-        };
+    @DisplayName("Should rollback quantity update when transaction-history INSERT fails")
+    void shouldRollbackQuantityUpdateWhenTransactionInsertFails() throws SQLException {
+        // 1. Initial product has quantity 20
+        assertEquals(20, testProduct.getQuantity());
 
-        // When requesting stock-out of 21 (when only 20 available),
-        // the conditional update fails (affected == 0), the method detects this and rolls back.
-        assertThrows(ValidationException.class, () ->
-                failingRepo.recordMovement(testProduct.getId(), TransactionType.STOCK_OUT, 21));
+        // 2. Install an isolated trigger targeting ONLY this specific product ID
+        // so that the INSERT into inventory_transactions fails after products UPDATE succeeded
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(String.format("""
+                CREATE OR REPLACE FUNCTION test_fail_tx_insert() RETURNS TRIGGER AS $$
+                BEGIN
+                    IF NEW.product_id = %d THEN
+                        RAISE EXCEPTION 'Simulated deliberate failure on inventory_transactions INSERT for rollback test';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+            """, testProduct.getId()));
 
-        Product reloaded = productRepository.findBySku(testSku).orElseThrow();
-        assertEquals(20, reloaded.getQuantity(), "Quantity must roll back to 20");
+            stmt.execute("""
+                CREATE TRIGGER trg_test_fail_tx_insert
+                BEFORE INSERT ON inventory_transactions
+                FOR EACH ROW EXECUTE FUNCTION test_fail_tx_insert();
+            """);
+        }
+
+        try {
+            // 3. Attempt Stock Out of 5 units.
+            // The UPDATE products SET quantity = quantity - 5 succeeds (row updated to 15 in transaction),
+            // then INSERT into inventory_transactions fires the trigger and raises an exception.
+            // 4. Verify that the operation fails.
+            RuntimeException thrown = assertThrows(RuntimeException.class, () ->
+                    transactionRepository.recordMovement(testProduct.getId(), TransactionType.STOCK_OUT, 5));
+
+            assertTrue(thrown.getMessage().contains("Simulated deliberate failure") ||
+                            (thrown.getCause() != null && thrown.getCause().getMessage().contains("Simulated deliberate failure")),
+                    "Exception must originate from the deliberate trigger failure");
+
+            // 5. Reload the product from PostgreSQL and confirm its quantity is still 20 (rolled back)
+            Product reloaded = productRepository.findBySku(testSku).orElseThrow();
+            assertEquals(20, reloaded.getQuantity(),
+                    "Product quantity in PostgreSQL must be rolled back to 20, proving quantity update was reverted");
+
+            // 6. Verify that no transaction record was persisted for the failed movement
+            List<InventoryTransaction> transactions = transactionRepository.findByProductId(testProduct.getId());
+            assertTrue(transactions.isEmpty(), "No transaction history should be recorded for the aborted movement");
+
+        } finally {
+            // 7. Clean up test trigger objects safely
+            dropTriggerQuietly();
+        }
+    }
+
+    @Test
+    @DisplayName("Should prevent deleting product in PostgreSQL when transaction history exists via repository")
+    void shouldPreventDeletingProductWhenTransactionHistoryExistsViaRepository() {
+        transactionRepository.recordMovement(testProduct.getId(), TransactionType.STOCK_IN, 5);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productRepository.deleteBySku(testSku));
+        assertTrue(ex.getMessage().contains("Cannot delete product"));
+
+        assertTrue(productRepository.findBySku(testSku).isPresent(),
+                "Product should not be deleted from PostgreSQL");
+    }
+
+    @Test
+    @DisplayName("Should prevent deleting product in PostgreSQL when transaction history exists via ProductService")
+    void shouldPreventDeletingProductWhenTransactionHistoryExistsViaService() {
+        ProductService service = new ProductService(productRepository, transactionRepository);
+        service.stockIn(testSku, 5);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                service.deleteProductBySku(testSku));
+        assertTrue(ex.getMessage().contains("recorded inventory transaction history"));
+
+        assertTrue(productRepository.findBySku(testSku).isPresent(),
+                "Product should remain in PostgreSQL");
     }
 
     @Test

@@ -4,7 +4,10 @@ import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
+import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.JdbcInventoryTransactionRepository;
+import com.stockflow.repository.JdbcProductRepository;
 import com.stockflow.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -473,5 +476,78 @@ class ProductServiceTest {
         ValidationException ex = assertThrows(ValidationException.class, () ->
                 productService.getTransactionHistory("NONEXISTENT"));
         assertTrue(ex.getMessage().contains("Product not found with SKU: NONEXISTENT"));
+    }
+
+    @Test
+    @DisplayName("Should prevent deleting product when transaction history exists in memory")
+    void shouldPreventDeletingProductWhenTransactionHistoryExists() {
+        productService.createProduct("SKU-DEL-TX", "Protected Product", new BigDecimal("19.99"), 10, 2);
+        productService.stockIn("SKU-DEL-TX", 5);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.deleteProductBySku("SKU-DEL-TX"));
+        assertTrue(ex.getMessage().contains("recorded inventory transaction history"));
+
+        assertTrue(productService.findProductBySku("SKU-DEL-TX").isPresent(),
+                "Product should not be deleted when it has transaction history");
+    }
+
+    @Test
+    @DisplayName("Should reject incompatible repository combinations in ProductService")
+    void shouldRejectIncompatibleRepositoryCombinations() {
+        ProductRepository inMemoryProductRepo = new InMemoryProductRepository();
+        ProductRepository jdbcProductRepo = new JdbcProductRepository();
+        InMemoryInventoryTransactionRepository inMemoryTxRepo = new InMemoryInventoryTransactionRepository(inMemoryProductRepo);
+        JdbcInventoryTransactionRepository jdbcTxRepo = new JdbcInventoryTransactionRepository();
+
+        // 1. JdbcProductRepository + InMemoryInventoryTransactionRepository
+        IllegalArgumentException ex1 = assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(jdbcProductRepo, inMemoryTxRepo));
+        assertTrue(ex1.getMessage().contains("Unsupported repository combination"));
+
+        // 2. InMemoryProductRepository + JdbcInventoryTransactionRepository
+        IllegalArgumentException ex2 = assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(inMemoryProductRepo, jdbcTxRepo));
+        assertTrue(ex2.getMessage().contains("Unsupported repository combination"));
+
+        // 3. Null product repository
+        assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(null, inMemoryTxRepo));
+    }
+
+    @Test
+    @DisplayName("Should reject constructing InMemoryInventoryTransactionRepository with non-in-memory ProductRepository")
+    void shouldRejectConstructingInMemoryTxRepoWithNonInMemoryProductRepo() {
+        JdbcProductRepository jdbcProductRepo = new JdbcProductRepository();
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                new InMemoryInventoryTransactionRepository(jdbcProductRepo));
+        assertTrue(ex.getMessage().contains("requires an InMemoryProductRepository"));
+    }
+
+    @Test
+    @DisplayName("Should permit CRUD but reject stock movements when transaction repository is not configured")
+    void shouldPermitCrudButRejectStockMovementsWhenTxRepoNotConfigured() {
+        // Construct service with a repository without transaction repository (e.g. mock/stub or JDBC CRUD-only)
+        ProductRepository repo = new InMemoryProductRepository();
+        ProductService crudOnlyService = new ProductService(repo, null);
+
+        // CRUD operations succeed
+        Product p = crudOnlyService.createProduct("SKU-CRUD", "CRUD Item", new BigDecimal("10.00"), 5, 1);
+        assertNotNull(p);
+        assertTrue(crudOnlyService.findProductBySku("SKU-CRUD").isPresent());
+
+        // Stock movement operations fail explicitly and safely
+        IllegalStateException ex1 = assertThrows(IllegalStateException.class, () ->
+                crudOnlyService.stockIn("SKU-CRUD", 5));
+        assertTrue(ex1.getMessage().contains("Stock movements are not supported"));
+
+        IllegalStateException ex2 = assertThrows(IllegalStateException.class, () ->
+                crudOnlyService.stockOut("SKU-CRUD", 2));
+        assertTrue(ex2.getMessage().contains("Stock movements are not supported"));
+
+        IllegalStateException ex3 = assertThrows(IllegalStateException.class, () ->
+                crudOnlyService.getTransactionHistory("SKU-CRUD"));
+        assertTrue(ex3.getMessage().contains("Stock movements are not supported"));
     }
 }
