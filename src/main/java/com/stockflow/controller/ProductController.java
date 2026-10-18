@@ -1,6 +1,7 @@
 package com.stockflow.controller;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.service.ProductService;
 
@@ -29,13 +30,16 @@ public class ProductController {
     public void runMenu() {
         boolean back = false;
         while (!back) {
-            System.out.println("\n--- Product Management ---");
+            System.out.println("\n--- Product & Inventory Management ---");
             System.out.println("1. Add Product");
             System.out.println("2. List Products");
             System.out.println("3. Find Product by SKU");
             System.out.println("4. Update Product");
             System.out.println("5. Delete Product");
-            System.out.println("6. Back to Main Menu");
+            System.out.println("6. Stock In");
+            System.out.println("7. Stock Out");
+            System.out.println("8. View Transaction History");
+            System.out.println("9. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -45,7 +49,10 @@ public class ProductController {
                 case "3" -> handleFindProductBySku();
                 case "4" -> handleUpdateProduct();
                 case "5" -> handleDeleteProduct();
-                case "6" -> back = true;
+                case "6" -> handleStockIn();
+                case "7" -> handleStockOut();
+                case "8" -> handleViewHistory();
+                case "9" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -255,6 +262,85 @@ public class ProductController {
             } else {
                 System.out.println("Please enter Y or N.");
             }
+        }
+    }
+
+    private void handleStockIn() {
+        System.out.println("\n[ Stock In ]");
+        System.out.print("Enter Product SKU: ");
+        String sku = scanner.nextLine();
+
+        int quantity;
+        try {
+            System.out.print("Enter Quantity to Add: ");
+            quantity = Integer.parseInt(scanner.nextLine().trim());
+        } catch (NumberFormatException e) {
+            System.out.println("Error: Quantity must be a valid whole number.");
+            return;
+        }
+
+        try {
+            InventoryTransaction tx = productService.stockIn(sku, quantity);
+            System.out.println("Success: Stock In recorded successfully! Transaction ID: " + tx.getId());
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleStockOut() {
+        System.out.println("\n[ Stock Out ]");
+        System.out.print("Enter Product SKU: ");
+        String sku = scanner.nextLine();
+
+        int quantity;
+        try {
+            System.out.print("Enter Quantity to Remove: ");
+            quantity = Integer.parseInt(scanner.nextLine().trim());
+        } catch (NumberFormatException e) {
+            System.out.println("Error: Quantity must be a valid whole number.");
+            return;
+        }
+
+        try {
+            InventoryTransaction tx = productService.stockOut(sku, quantity);
+            System.out.println("Success: Stock Out recorded successfully! Transaction ID: " + tx.getId());
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleViewHistory() {
+        System.out.println("\n[ Transaction History ]");
+        System.out.print("Enter Product SKU: ");
+        String sku = scanner.nextLine();
+
+        try {
+            List<InventoryTransaction> transactions = productService.getTransactionHistory(sku);
+            if (transactions.isEmpty()) {
+                System.out.println("No transactions found for product SKU: " + sku.trim());
+                return;
+            }
+
+            System.out.printf("%-6s | %-10s | %-12s | %-10s | %-25s%n",
+                    "ID", "PROD ID", "TYPE", "QUANTITY", "CREATED AT");
+            System.out.println("-".repeat(72));
+
+            for (InventoryTransaction tx : transactions) {
+                System.out.printf("%-6d | %-10d | %-12s | %-10d | %-25s%n",
+                        tx.getId(),
+                        tx.getProductId(),
+                        tx.getType(),
+                        tx.getQuantity(),
+                        tx.getCreatedAt().toString());
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 }

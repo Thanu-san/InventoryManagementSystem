@@ -1,7 +1,11 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
+import com.stockflow.model.TransactionType;
+import com.stockflow.repository.InMemoryInventoryTransactionRepository;
+import com.stockflow.repository.InventoryTransactionRepository;
 import com.stockflow.repository.ProductRepository;
 
 import java.math.BigDecimal;
@@ -14,9 +18,15 @@ import java.util.Optional;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final InventoryTransactionRepository transactionRepository;
 
     public ProductService(ProductRepository productRepository) {
+        this(productRepository, new InMemoryInventoryTransactionRepository(productRepository));
+    }
+
+    public ProductService(ProductRepository productRepository, InventoryTransactionRepository transactionRepository) {
         this.productRepository = productRepository;
+        this.transactionRepository = transactionRepository;
     }
 
     /**
@@ -94,6 +104,74 @@ public class ProductService {
         if (!deleted) {
             throw new ValidationException("Product not found with SKU: " + sku.trim());
         }
+    }
+
+    /**
+     * Increases product stock by the specified quantity and records an audit transaction.
+     *
+     * @param sku product SKU
+     * @param quantity amount to add (must be > 0)
+     * @return the created InventoryTransaction
+     */
+    public InventoryTransaction stockIn(String sku, int quantity) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+        if (quantity <= 0) {
+            throw new ValidationException("Stock In quantity must be greater than zero.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        if ((long) product.getQuantity() + quantity > Integer.MAX_VALUE) {
+            throw new ValidationException("Stock In would cause quantity to exceed maximum capacity.");
+        }
+
+        return transactionRepository.recordMovement(product.getId(), TransactionType.STOCK_IN, quantity);
+    }
+
+    /**
+     * Decreases product stock by the specified quantity and records an audit transaction.
+     *
+     * @param sku product SKU
+     * @param quantity amount to remove (must be > 0)
+     * @return the created InventoryTransaction
+     */
+    public InventoryTransaction stockOut(String sku, int quantity) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+        if (quantity <= 0) {
+            throw new ValidationException("Stock Out quantity must be greater than zero.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        if (product.getQuantity() < quantity) {
+            throw new ValidationException("Insufficient stock for product '" + sku.trim() +
+                    "'. Available: " + product.getQuantity() + ", Requested: " + quantity);
+        }
+
+        return transactionRepository.recordMovement(product.getId(), TransactionType.STOCK_OUT, quantity);
+    }
+
+    /**
+     * Retrieves audit transaction history for a product by its SKU.
+     *
+     * @param sku product SKU
+     * @return list of transactions ordered by createdAt DESC, id DESC
+     */
+    public List<InventoryTransaction> getTransactionHistory(String sku) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        return transactionRepository.findByProductId(product.getId());
     }
 
     /**

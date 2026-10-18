@@ -1,7 +1,9 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
+import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryProductRepository;
 import com.stockflow.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -333,5 +335,143 @@ class ProductServiceTest {
                 serviceWithFailingRepo.updateProduct("SKU-FAIL", "New Name", new BigDecimal("12.00"), 2)
         );
         assertTrue(exception.getMessage().contains("Product not found with SKU: SKU-FAIL"));
+    }
+
+    @Test
+    @DisplayName("Should successfully perform stock in and update product quantity")
+    void shouldStockInSuccessfully() {
+        productService.createProduct("SKU-IN", "Item In", new BigDecimal("10.00"), 20, 5);
+
+        InventoryTransaction tx = productService.stockIn("SKU-IN", 15);
+
+        assertNotNull(tx);
+        assertEquals(TransactionType.STOCK_IN, tx.getType());
+        assertEquals(15, tx.getQuantity());
+
+        Product product = productService.findProductBySku("SKU-IN").orElseThrow();
+        assertEquals(35, product.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock in SKU is blank")
+    void shouldFailStockInWhenSkuIsBlank() {
+        assertThrows(ValidationException.class, () -> productService.stockIn("  ", 10));
+        assertThrows(ValidationException.class, () -> productService.stockIn(null, 10));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock in quantity is zero or negative")
+    void shouldFailStockInWhenQuantityIsInvalid() {
+        productService.createProduct("SKU-IN-QTY", "Item", new BigDecimal("10.00"), 20, 5);
+
+        assertThrows(ValidationException.class, () -> productService.stockIn("SKU-IN-QTY", 0));
+        assertThrows(ValidationException.class, () -> productService.stockIn("SKU-IN-QTY", -5));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock in product does not exist")
+    void shouldFailStockInWhenProductNotFound() {
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.stockIn("NONEXISTENT", 10));
+        assertTrue(ex.getMessage().contains("Product not found with SKU: NONEXISTENT"));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock in causes quantity overflow")
+    void shouldFailStockInWhenQuantityCausesOverflow() {
+        productService.createProduct("SKU-OVERFLOW", "Item", new BigDecimal("10.00"), 100, 5);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.stockIn("SKU-OVERFLOW", Integer.MAX_VALUE));
+        assertTrue(ex.getMessage().contains("maximum capacity"));
+    }
+
+    @Test
+    @DisplayName("Should successfully perform stock out and update product quantity")
+    void shouldStockOutSuccessfully() {
+        productService.createProduct("SKU-OUT", "Item Out", new BigDecimal("10.00"), 20, 5);
+
+        InventoryTransaction tx = productService.stockOut("SKU-OUT", 5);
+
+        assertNotNull(tx);
+        assertEquals(TransactionType.STOCK_OUT, tx.getType());
+        assertEquals(5, tx.getQuantity());
+
+        Product product = productService.findProductBySku("SKU-OUT").orElseThrow();
+        assertEquals(15, product.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should allow stock out reducing quantity to zero")
+    void shouldAllowStockOutToZero() {
+        productService.createProduct("SKU-OUT-ZERO", "Item", new BigDecimal("10.00"), 10, 5);
+
+        InventoryTransaction tx = productService.stockOut("SKU-OUT-ZERO", 10);
+        assertNotNull(tx);
+
+        Product product = productService.findProductBySku("SKU-OUT-ZERO").orElseThrow();
+        assertEquals(0, product.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock out quantity exceeds available stock")
+    void shouldFailStockOutWhenInsufficientStock() {
+        productService.createProduct("SKU-LOW", "Low Stock Item", new BigDecimal("10.00"), 5, 2);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.stockOut("SKU-LOW", 6));
+        assertTrue(ex.getMessage().contains("Insufficient stock"));
+
+        Product product = productService.findProductBySku("SKU-LOW").orElseThrow();
+        assertEquals(5, product.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock out SKU is blank")
+    void shouldFailStockOutWhenSkuIsBlank() {
+        assertThrows(ValidationException.class, () -> productService.stockOut("  ", 5));
+        assertThrows(ValidationException.class, () -> productService.stockOut(null, 5));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock out quantity is zero or negative")
+    void shouldFailStockOutWhenQuantityIsInvalid() {
+        productService.createProduct("SKU-OUT-QTY", "Item", new BigDecimal("10.00"), 20, 5);
+
+        assertThrows(ValidationException.class, () -> productService.stockOut("SKU-OUT-QTY", 0));
+        assertThrows(ValidationException.class, () -> productService.stockOut("SKU-OUT-QTY", -3));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when stock out product does not exist")
+    void shouldFailStockOutWhenProductNotFound() {
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.stockOut("NONEXISTENT", 5));
+        assertTrue(ex.getMessage().contains("Product not found with SKU: NONEXISTENT"));
+    }
+
+    @Test
+    @DisplayName("Should retrieve transaction history for a product")
+    void shouldGetTransactionHistorySuccessfully() {
+        productService.createProduct("SKU-HIST", "History Item", new BigDecimal("10.00"), 20, 5);
+
+        productService.stockIn("SKU-HIST", 10);
+        productService.stockOut("SKU-HIST", 5);
+
+        List<InventoryTransaction> history = productService.getTransactionHistory("SKU-HIST");
+        assertEquals(2, history.size());
+        assertEquals(TransactionType.STOCK_OUT, history.get(0).getType());
+        assertEquals(TransactionType.STOCK_IN, history.get(1).getType());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when history SKU is blank or product does not exist")
+    void shouldFailGetHistoryWhenInvalidSku() {
+        assertThrows(ValidationException.class, () -> productService.getTransactionHistory(" "));
+        assertThrows(ValidationException.class, () -> productService.getTransactionHistory(null));
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.getTransactionHistory("NONEXISTENT"));
+        assertTrue(ex.getMessage().contains("Product not found with SKU: NONEXISTENT"));
     }
 }

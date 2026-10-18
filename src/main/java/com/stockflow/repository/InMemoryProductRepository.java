@@ -80,4 +80,28 @@ public class InMemoryProductRepository implements ProductRepository {
         }
         return productsBySku.remove(sku.trim()) != null;
     }
+
+    /**
+     * Updates a product's quantity directly in memory.
+     * Used exclusively by atomic stock operations, preserving immutability of the Product model.
+     */
+    public void updateQuantity(Long productId, int newQuantity) {
+        if (newQuantity < 0) {
+            throw new IllegalArgumentException("Quantity cannot be negative.");
+        }
+        Product existing = productsBySku.values().stream()
+                .filter(p -> productId.equals(p.getId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Product not found with ID: " + productId));
+
+        Product updated = new Product(
+                existing.getId(),
+                existing.getSku(),
+                existing.getName(),
+                existing.getPrice(),
+                newQuantity,
+                existing.getMinimumStock()
+        );
+        productsBySku.put(existing.getSku(), updated);
+    }
 }

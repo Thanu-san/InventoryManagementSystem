@@ -1,6 +1,8 @@
 package com.stockflow;
 
 import com.stockflow.controller.ProductController;
+import com.stockflow.repository.InventoryTransactionRepository;
+import com.stockflow.repository.JdbcInventoryTransactionRepository;
 import com.stockflow.repository.JdbcProductRepository;
 import com.stockflow.repository.ProductRepository;
 import com.stockflow.service.ProductService;
@@ -18,7 +20,8 @@ public class Main {
 
         // 1. Dependency wiring: Repository -> Service -> Controller
         ProductRepository productRepository = new JdbcProductRepository();
-        ProductService productService = new ProductService(productRepository);
+        InventoryTransactionRepository transactionRepository = new JdbcInventoryTransactionRepository();
+        ProductService productService = new ProductService(productRepository, transactionRepository);
         ProductController productController = new ProductController(productService, scanner);
 
         System.out.println("============================================");
