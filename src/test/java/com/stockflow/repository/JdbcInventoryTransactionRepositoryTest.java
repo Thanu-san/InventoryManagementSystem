@@ -37,6 +37,9 @@ class JdbcInventoryTransactionRepositoryTest {
     private Product testProduct;
     private String testSku;
 
+    private String activeTriggerName;
+    private String activeFunctionName;
+
     @BeforeAll
     static void initSchema() throws SQLException {
         try (Connection conn = DatabaseConnection.getConnection();
@@ -70,7 +73,7 @@ class JdbcInventoryTransactionRepositoryTest {
 
     @AfterEach
     void tearDown() {
-        dropTriggerQuietly();
+        dropActiveTriggerQuietly();
         if (testProduct != null && testProduct.getId() != null) {
             try (Connection conn = DatabaseConnection.getConnection()) {
                 // Delete child transactions first, then delete parent product
@@ -87,12 +90,21 @@ class JdbcInventoryTransactionRepositoryTest {
         }
     }
 
-    private void dropTriggerQuietly() {
-        try (Connection conn = DatabaseConnection.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TRIGGER IF EXISTS trg_test_fail_tx_insert ON inventory_transactions");
-            stmt.execute("DROP FUNCTION IF EXISTS test_fail_tx_insert()");
-        } catch (SQLException ignored) {
+    private void dropActiveTriggerQuietly() {
+        if (activeTriggerName != null || activeFunctionName != null) {
+            try (Connection conn = DatabaseConnection.getConnection();
+                 Statement stmt = conn.createStatement()) {
+                if (activeTriggerName != null) {
+                    stmt.execute("DROP TRIGGER IF EXISTS " + activeTriggerName + " ON inventory_transactions");
+                }
+                if (activeFunctionName != null) {
+                    stmt.execute("DROP FUNCTION IF EXISTS " + activeFunctionName + "()");
+                }
+            } catch (SQLException ignored) {
+            } finally {
+                activeTriggerName = null;
+                activeFunctionName = null;
+            }
         }
     }
 
@@ -183,12 +195,17 @@ class JdbcInventoryTransactionRepositoryTest {
         // 1. Initial product has quantity 20
         assertEquals(20, testProduct.getQuantity());
 
-        // 2. Install an isolated trigger targeting ONLY this specific product ID
+        // 2. Generate unique test-isolated names for trigger and function
+        String uniqueSuffix = System.currentTimeMillis() + "_" + Math.abs(java.util.concurrent.ThreadLocalRandom.current().nextInt(100000));
+        activeFunctionName = "test_fail_tx_insert_" + uniqueSuffix;
+        activeTriggerName = "trg_test_fail_tx_insert_" + uniqueSuffix;
+
+        // Install an isolated trigger targeting ONLY this specific product ID
         // so that the INSERT into inventory_transactions fails after products UPDATE succeeded
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement()) {
             stmt.execute(String.format("""
-                CREATE OR REPLACE FUNCTION test_fail_tx_insert() RETURNS TRIGGER AS $$
+                CREATE OR REPLACE FUNCTION %s() RETURNS TRIGGER AS $$
                 BEGIN
                     IF NEW.product_id = %d THEN
                         RAISE EXCEPTION 'Simulated deliberate failure on inventory_transactions INSERT for rollback test';
@@ -196,13 +213,13 @@ class JdbcInventoryTransactionRepositoryTest {
                     RETURN NEW;
                 END;
                 $$ LANGUAGE plpgsql;
-            """, testProduct.getId()));
+            """, activeFunctionName, testProduct.getId()));
 
-            stmt.execute("""
-                CREATE TRIGGER trg_test_fail_tx_insert
+            stmt.execute(String.format("""
+                CREATE TRIGGER %s
                 BEFORE INSERT ON inventory_transactions
-                FOR EACH ROW EXECUTE FUNCTION test_fail_tx_insert();
-            """);
+                FOR EACH ROW EXECUTE FUNCTION %s();
+            """, activeTriggerName, activeFunctionName));
         }
 
         try {
@@ -228,7 +245,7 @@ class JdbcInventoryTransactionRepositoryTest {
 
         } finally {
             // 7. Clean up test trigger objects safely
-            dropTriggerQuietly();
+            dropActiveTriggerQuietly();
         }
     }
 

@@ -51,6 +51,12 @@ public class ProductService {
             throw new IllegalArgumentException(
                     "Unsupported repository combination: InMemoryProductRepository cannot be paired with JdbcInventoryTransactionRepository.");
         }
+        if (productRepo instanceof InMemoryProductRepository && txRepo instanceof InMemoryInventoryTransactionRepository inMemoryTxRepo) {
+            if (inMemoryTxRepo.getProductRepository() != productRepo) {
+                throw new IllegalArgumentException(
+                        "Mismatched repository instances: InMemoryInventoryTransactionRepository must be connected to the same InMemoryProductRepository instance used by ProductService.");
+            }
+        }
     }
 
     /**

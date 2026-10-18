@@ -55,6 +55,8 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
 
         Connection connection = null;
         boolean originalAutoCommit = true;
+        boolean committed = false;
+        boolean rollbackSucceeded = false;
 
         try {
             connection = DatabaseConnection.getConnection();
@@ -132,16 +134,17 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
 
             // 3. Commit only after both operations succeed
             connection.commit();
+            committed = true;
             return transaction;
 
         } catch (SQLException e) {
-            rollbackQuietly(connection, e);
+            rollbackSucceeded = rollbackSafely(connection, e);
             throw new RuntimeException("Database error during stock movement: " + e.getMessage(), e);
         } catch (RuntimeException e) {
-            rollbackQuietly(connection, e);
+            rollbackSucceeded = rollbackSafely(connection, e);
             throw e;
         } finally {
-            closeQuietly(connection, originalAutoCommit);
+            closeSafely(connection, originalAutoCommit, committed, rollbackSucceeded);
         }
     }
 
@@ -194,25 +197,40 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
         );
     }
 
-    private void rollbackQuietly(Connection connection, Exception mainException) {
+    private boolean rollbackSafely(Connection connection, Exception mainException) {
         if (connection != null) {
             try {
-                connection.rollback();
+                if (!connection.isClosed()) {
+                    connection.rollback();
+                    return true;
+                }
             } catch (SQLException rollbackEx) {
                 mainException.addSuppressed(rollbackEx);
             }
         }
+        return false;
     }
 
-    private void closeQuietly(Connection connection, boolean originalAutoCommit) {
+    private void closeSafely(Connection connection, boolean originalAutoCommit, boolean committed, boolean rollbackSucceeded) {
         if (connection != null) {
             try {
-                connection.setAutoCommit(originalAutoCommit);
-            } catch (SQLException ignored) {
-            }
-            try {
-                connection.close();
-            } catch (SQLException ignored) {
+                // Restore auto-commit only if the transaction cleanly committed,
+                // or if rollback completed successfully without error.
+                // If rollback failed or connection is in an unknown transaction state,
+                // NEVER call setAutoCommit(true) because that can commit an unfinished transaction under JDBC semantics.
+                if (committed || rollbackSucceeded) {
+                    try {
+                        if (!connection.isClosed()) {
+                            connection.setAutoCommit(originalAutoCommit);
+                        }
+                    } catch (SQLException ignored) {
+                    }
+                }
+            } finally {
+                try {
+                    connection.close();
+                } catch (SQLException ignored) {
+                }
             }
         }
     }

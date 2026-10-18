@@ -550,4 +550,27 @@ class ProductServiceTest {
                 crudOnlyService.getTransactionHistory("SKU-CRUD"));
         assertTrue(ex3.getMessage().contains("Stock movements are not supported"));
     }
+
+    @Test
+    @DisplayName("Should reject mismatched InMemoryProductRepository instances between service and transaction repository")
+    void shouldRejectMismatchedInMemoryRepositoryInstances() {
+        InMemoryProductRepository serviceRepo = new InMemoryProductRepository();
+        InMemoryProductRepository separateTxRepoProductStore = new InMemoryProductRepository();
+        InMemoryInventoryTransactionRepository txRepo = new InMemoryInventoryTransactionRepository(separateTxRepoProductStore);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(serviceRepo, txRepo));
+        assertTrue(ex.getMessage().contains("Mismatched repository instances"));
+    }
+
+    @Test
+    @DisplayName("Should reject InMemoryInventoryTransactionRepository without product repository in ProductService")
+    void shouldRejectInMemoryTxRepoWithoutProductRepositoryInService() {
+        InMemoryProductRepository serviceRepo = new InMemoryProductRepository();
+        InMemoryInventoryTransactionRepository txRepoWithoutRepo = new InMemoryInventoryTransactionRepository();
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(serviceRepo, txRepoWithoutRepo));
+        assertTrue(ex.getMessage().contains("Mismatched repository instances"));
+    }
 }

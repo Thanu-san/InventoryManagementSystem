@@ -34,6 +34,10 @@ public class InMemoryInventoryTransactionRepository implements InventoryTransact
         this.productRepository = productRepository;
     }
 
+    public ProductRepository getProductRepository() {
+        return productRepository;
+    }
+
     @Override
     public synchronized InventoryTransaction recordMovement(Long productId, TransactionType type, int quantity) {
         if (productId == null || productId <= 0) {
