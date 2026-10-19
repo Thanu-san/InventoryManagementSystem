@@ -573,4 +573,49 @@ class ProductServiceTest {
                 new ProductService(serviceRepo, txRepoWithoutRepo));
         assertTrue(ex.getMessage().contains("Mismatched repository instances"));
     }
+
+    @Test
+    @DisplayName("Should return low-stock products including quantity below and equal to minimum stock")
+    void shouldReturnLowStockProductsCorrectly() {
+        // Below minimum stock
+        productService.createProduct("SKU-LOW", "Low Item", new BigDecimal("10.00"), 3, 5);
+        // Exactly equal to minimum stock
+        productService.createProduct("SKU-EQUAL", "Equal Item", new BigDecimal("15.00"), 5, 5);
+        // Above minimum stock (must be excluded)
+        productService.createProduct("SKU-OK", "Normal Item", new BigDecimal("20.00"), 10, 5);
+
+        List<Product> report = productService.getLowStockProducts();
+
+        assertEquals(2, report.size());
+        assertEquals("SKU-LOW", report.get(0).getSku());
+        assertEquals("SKU-EQUAL", report.get(1).getSku());
+
+        // Verify product quantities and minimum stock remain completely unchanged
+        Product low = productService.findProductBySku("SKU-LOW").orElseThrow();
+        assertEquals(3, low.getQuantity());
+        assertEquals(5, low.getMinimumStock());
+
+        Product equal = productService.findProductBySku("SKU-EQUAL").orElseThrow();
+        assertEquals(5, equal.getQuantity());
+        assertEquals(5, equal.getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should return empty list when no products are low-stock")
+    void shouldReturnEmptyListWhenNoProductsLowStock() {
+        productService.createProduct("SKU-ABOVE1", "Item 1", new BigDecimal("10.00"), 10, 2);
+        productService.createProduct("SKU-ABOVE2", "Item 2", new BigDecimal("10.00"), 20, 5);
+
+        List<Product> report = productService.getLowStockProducts();
+        assertNotNull(report);
+        assertTrue(report.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should return empty list when system has no products")
+    void shouldReturnEmptyListWhenNoProductsExist() {
+        List<Product> report = productService.getLowStockProducts();
+        assertNotNull(report);
+        assertTrue(report.isEmpty());
+    }
 }

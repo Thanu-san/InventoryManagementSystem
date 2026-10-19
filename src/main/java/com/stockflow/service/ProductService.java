@@ -77,6 +77,16 @@ public class ProductService {
     }
 
     /**
+     * Retrieves all products whose current quantity is less than or equal to their minimum stock.
+     * Ordered by quantity ascending, then SKU ascending.
+     *
+     * @return list of low-stock products
+     */
+    public List<Product> getLowStockProducts() {
+        return productRepository.findLowStockProducts();
+    }
+
+    /**
      * Finds a product by its SKU.
      * Validates that the input SKU is not blank and normalizes surrounding spaces.
      */

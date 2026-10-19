@@ -131,6 +131,26 @@ public class JdbcProductRepository implements ProductRepository {
         }
     }
 
+    private static final String SELECT_LOW_STOCK_SQL =
+            "SELECT id, sku, name, price, quantity, minimum_stock FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC, sku ASC";
+
+    @Override
+    public List<Product> findLowStockProducts() {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SELECT_LOW_STOCK_SQL);
+             ResultSet resultSet = statement.executeQuery()) {
+
+            List<Product> products = new ArrayList<>();
+            while (resultSet.next()) {
+                Product product = mapRowToProduct(resultSet);
+                products.add(product);
+            }
+            return products;
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while retrieving low-stock products: " + e.getMessage(), e);
+        }
+    }
+
     private static final String UPDATE_SQL =
             "UPDATE products SET name = ?, price = ?, minimum_stock = ? WHERE sku = ?";
 

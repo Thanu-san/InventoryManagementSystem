@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -23,22 +24,32 @@ class JdbcProductRepositoryTest {
     private JdbcProductRepository repository;
     private String testSku;
     private String testSku2;
+    private final List<String> extraTestSkus = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
         repository = new JdbcProductRepository();
         testSku = "TEST-" + System.currentTimeMillis();
         testSku2 = "TEST-2-" + System.currentTimeMillis();
+        extraTestSkus.clear();
     }
 
     @AfterEach
     void tearDown() {
         // Clean up test products by SKU to keep database clean
-        try (Connection connection = DatabaseConnection.getConnection();
-             PreparedStatement statement = connection.prepareStatement("DELETE FROM products WHERE sku = ? OR sku = ?")) {
-            statement.setString(1, testSku);
-            statement.setString(2, testSku2);
-            statement.executeUpdate();
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            for (String sku : extraTestSkus) {
+                try (PreparedStatement statement = connection.prepareStatement("DELETE FROM products WHERE sku = ?")) {
+                    statement.setString(1, sku);
+                    statement.executeUpdate();
+                } catch (SQLException ignored) {
+                }
+            }
+            try (PreparedStatement statement = connection.prepareStatement("DELETE FROM products WHERE sku = ? OR sku = ?")) {
+                statement.setString(1, testSku);
+                statement.setString(2, testSku2);
+                statement.executeUpdate();
+            }
         } catch (SQLException ignored) {
         }
     }
@@ -330,5 +341,60 @@ class JdbcProductRepositoryTest {
         boolean deleted = repository.deleteBySku("NON-EXISTENT-" + System.currentTimeMillis());
 
         assertFalse(deleted, "deleteBySku() should return false when no product matched the SKU");
+    }
+
+    @Test
+    @DisplayName("Should retrieve only low-stock products from PostgreSQL ordered by quantity ASC, sku ASC")
+    void shouldFindLowStockProductsInPostgreSqlOrderedCorrectly() {
+        String skuBelow = "LOW-BELOW-" + System.currentTimeMillis();
+        String skuEqual = "LOW-EQUAL-" + System.currentTimeMillis();
+        String skuAbove = "LOW-ABOVE-" + System.currentTimeMillis();
+
+        extraTestSkus.add(skuBelow);
+        extraTestSkus.add(skuEqual);
+        extraTestSkus.add(skuAbove);
+
+        repository.save(new Product(skuBelow, "Below Min Product", new BigDecimal("10.00"), 2, 5));
+        repository.save(new Product(skuEqual, "Equal Min Product", new BigDecimal("12.00"), 5, 5));
+        repository.save(new Product(skuAbove, "Above Min Product", new BigDecimal("15.00"), 10, 5));
+
+        List<Product> allLowStock = repository.findLowStockProducts();
+
+        // Filter to our test SKUs
+        List<Product> testLowStock = allLowStock.stream()
+                .filter(p -> p.getSku().equals(skuBelow) || p.getSku().equals(skuEqual) || p.getSku().equals(skuAbove))
+                .toList();
+
+        assertEquals(2, testLowStock.size(), "Only products with quantity <= minimum_stock should be returned");
+        assertEquals(skuBelow, testLowStock.get(0).getSku(), "Product with lower quantity should be first");
+        assertEquals(2, testLowStock.get(0).getQuantity());
+        assertEquals(5, testLowStock.get(0).getMinimumStock());
+
+        assertEquals(skuEqual, testLowStock.get(1).getSku(), "Product with equal quantity should be second");
+        assertEquals(5, testLowStock.get(1).getQuantity());
+        assertEquals(5, testLowStock.get(1).getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should order low-stock products with same quantity by SKU ascending")
+    void shouldOrderLowStockProductsWithSameQuantityBySkuAscending() {
+        long ts = System.currentTimeMillis();
+        String sku1 = "LOW-ORDER-B-" + ts;
+        String sku2 = "LOW-ORDER-A-" + ts;
+
+        extraTestSkus.add(sku1);
+        extraTestSkus.add(sku2);
+
+        repository.save(new Product(sku1, "Product B", new BigDecimal("10.00"), 3, 5));
+        repository.save(new Product(sku2, "Product A", new BigDecimal("10.00"), 3, 5));
+
+        List<Product> allLowStock = repository.findLowStockProducts();
+        List<Product> testLowStock = allLowStock.stream()
+                .filter(p -> p.getSku().equals(sku1) || p.getSku().equals(sku2))
+                .toList();
+
+        assertEquals(2, testLowStock.size());
+        assertEquals(sku2, testLowStock.get(0).getSku(), "SKU-A should come before SKU-B");
+        assertEquals(sku1, testLowStock.get(1).getSku());
     }
 }

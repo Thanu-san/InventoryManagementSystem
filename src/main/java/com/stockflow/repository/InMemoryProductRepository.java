@@ -3,10 +3,12 @@ package com.stockflow.repository;
 import com.stockflow.model.Product;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * In-memory implementation of ProductRepository using a Map.
@@ -54,6 +56,15 @@ public class InMemoryProductRepository implements ProductRepository {
     @Override
     public List<Product> findAll() {
         return new ArrayList<>(productsBySku.values());
+    }
+
+    @Override
+    public List<Product> findLowStockProducts() {
+        return productsBySku.values().stream()
+                .filter(p -> p.getQuantity() <= p.getMinimumStock())
+                .sorted(Comparator.comparingInt(Product::getQuantity)
+                        .thenComparing(Product::getSku))
+                .collect(Collectors.toList());
     }
 
     @Override

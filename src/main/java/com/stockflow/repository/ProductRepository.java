@@ -43,4 +43,10 @@ public interface ProductRepository {
      * Returns true if the product was found and removed, false otherwise.
      */
     boolean deleteBySku(String sku);
+
+    /**
+     * Finds all products whose current quantity is less than or equal to their minimum stock.
+     * Results are ordered by quantity ascending, then SKU ascending.
+     */
+    List<Product> findLowStockProducts();
 }

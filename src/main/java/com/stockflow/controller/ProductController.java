@@ -39,7 +39,8 @@ public class ProductController {
             System.out.println("6. Stock In");
             System.out.println("7. Stock Out");
             System.out.println("8. View Transaction History");
-            System.out.println("9. Back to Main Menu");
+            System.out.println("9. Low-Stock Report");
+            System.out.println("10. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -52,7 +53,8 @@ public class ProductController {
                 case "6" -> handleStockIn();
                 case "7" -> handleStockOut();
                 case "8" -> handleViewHistory();
-                case "9" -> back = true;
+                case "9" -> handleLowStockReport();
+                case "10" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -343,6 +345,31 @@ public class ProductController {
             System.out.println("Validation Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleLowStockReport() {
+        System.out.println("\n[ Low-Stock Report ]");
+        List<Product> lowStockProducts = productService.getLowStockProducts();
+
+        if (lowStockProducts.isEmpty()) {
+            System.out.println("No low-stock products found.");
+            return;
+        }
+
+        // Print header
+        System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
+                "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
+        System.out.println("-".repeat(84));
+
+        for (Product p : lowStockProducts) {
+            System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
+                    p.getId(),
+                    p.getSku(),
+                    p.getName(),
+                    p.getPrice(),
+                    p.getQuantity(),
+                    p.getMinimumStock());
         }
     }
 }

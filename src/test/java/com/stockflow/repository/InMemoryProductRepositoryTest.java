@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -115,5 +116,60 @@ class InMemoryProductRepositoryTest {
         );
         assertTrue(exception.getMessage().contains("already has an ID"));
         assertTrue(repository.findBySku("SKU-HAS-ID").isEmpty(), "Repository must not store rejected product");
+    }
+
+    @Test
+    @DisplayName("Should return products where quantity is below minimum stock")
+    void shouldReturnProductsBelowMinimumStock() {
+        repository.save(new Product("SKU-BELOW", "Below Min", new BigDecimal("10.00"), 2, 5));
+        repository.save(new Product("SKU-ABOVE", "Above Min", new BigDecimal("10.00"), 10, 5));
+
+        List<Product> lowStock = repository.findLowStockProducts();
+        assertEquals(1, lowStock.size());
+        assertEquals("SKU-BELOW", lowStock.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should return products where quantity is exactly equal to minimum stock")
+    void shouldReturnProductsEqualToMinimumStock() {
+        repository.save(new Product("SKU-EQUAL", "Equal Min", new BigDecimal("15.00"), 5, 5));
+        repository.save(new Product("SKU-ABOVE", "Above Min", new BigDecimal("15.00"), 6, 5));
+
+        List<Product> lowStock = repository.findLowStockProducts();
+        assertEquals(1, lowStock.size());
+        assertEquals("SKU-EQUAL", lowStock.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should exclude products where quantity is strictly above minimum stock")
+    void shouldExcludeProductsAboveMinimumStock() {
+        repository.save(new Product("SKU-OK1", "Item 1", new BigDecimal("20.00"), 10, 5));
+        repository.save(new Product("SKU-OK2", "Item 2", new BigDecimal("20.00"), 25, 10));
+
+        List<Product> lowStock = repository.findLowStockProducts();
+        assertTrue(lowStock.isEmpty(), "Should return empty list when no products are low stock");
+    }
+
+    @Test
+    @DisplayName("Should return empty list when repository has no products")
+    void shouldReturnEmptyListWhenNoProducts() {
+        List<Product> lowStock = repository.findLowStockProducts();
+        assertNotNull(lowStock);
+        assertTrue(lowStock.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should order low-stock products by quantity ascending, then SKU ascending")
+    void shouldOrderLowStockProductsCorrectly() {
+        repository.save(new Product("SKU-C", "Item C", new BigDecimal("10.00"), 3, 5));
+        repository.save(new Product("SKU-A", "Item A", new BigDecimal("10.00"), 1, 5));
+        repository.save(new Product("SKU-B", "Item B", new BigDecimal("10.00"), 1, 5));
+        repository.save(new Product("SKU-D", "Item D", new BigDecimal("10.00"), 10, 5)); // excluded
+
+        List<Product> lowStock = repository.findLowStockProducts();
+        assertEquals(3, lowStock.size());
+        assertEquals("SKU-A", lowStock.get(0).getSku()); // qty 1, SKU-A
+        assertEquals("SKU-B", lowStock.get(1).getSku()); // qty 1, SKU-B
+        assertEquals("SKU-C", lowStock.get(2).getSku()); // qty 3, SKU-C
     }
 }
