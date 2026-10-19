@@ -1,5 +1,6 @@
 package com.stockflow.repository;
 
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.Product;
 
 import java.util.List;
@@ -49,4 +50,10 @@ public interface ProductRepository {
      * Results are ordered by quantity ascending, then SKU ascending.
      */
     List<Product> findLowStockProducts();
+
+    /**
+     * Calculates and returns aggregate inventory metrics:
+     * total products, total units, low-stock count, and out-of-stock count.
+     */
+    InventorySummary getInventorySummary();
 }

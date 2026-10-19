@@ -1,5 +1,6 @@
 package com.stockflow.repository;
 
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.Product;
 
 import java.util.ArrayList;
@@ -65,6 +66,22 @@ public class InMemoryProductRepository implements ProductRepository {
                 .sorted(Comparator.comparingInt(Product::getQuantity)
                         .thenComparing(Product::getSku))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public InventorySummary getInventorySummary() {
+        long totalProducts = productsBySku.size();
+        long totalUnits = productsBySku.values().stream()
+                .mapToLong(Product::getQuantity)
+                .sum();
+        long lowStockProducts = productsBySku.values().stream()
+                .filter(p -> p.getQuantity() <= p.getMinimumStock())
+                .count();
+        long outOfStockProducts = productsBySku.values().stream()
+                .filter(p -> p.getQuantity() == 0)
+                .count();
+
+        return new InventorySummary(totalProducts, totalUnits, lowStockProducts, outOfStockProducts);
     }
 
     @Override

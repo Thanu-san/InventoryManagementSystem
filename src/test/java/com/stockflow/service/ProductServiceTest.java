@@ -1,6 +1,7 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
@@ -617,5 +618,41 @@ class ProductServiceTest {
         List<Product> report = productService.getLowStockProducts();
         assertNotNull(report);
         assertTrue(report.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should return inventory summary with all zeroes when no products exist")
+    void shouldReturnZeroSummaryWhenNoProductsExist() {
+        InventorySummary summary = productService.getInventorySummary();
+
+        assertNotNull(summary);
+        assertEquals(0, summary.getTotalProducts());
+        assertEquals(0, summary.getTotalUnits());
+        assertEquals(0, summary.getLowStockProducts());
+        assertEquals(0, summary.getOutOfStockProducts());
+    }
+
+    @Test
+    @DisplayName("Should return accurate inventory summary with mixed products")
+    void shouldReturnAccurateInventorySummaryWithMixedProducts() {
+        productService.createProduct("P-NORMAL", "Normal Item", new BigDecimal("10.00"), 50, 10);
+        productService.createProduct("P-LOW", "Low Stock Item", new BigDecimal("20.00"), 5, 10);
+        productService.createProduct("P-OUT", "Out of Stock Item", new BigDecimal("30.00"), 0, 5);
+
+        InventorySummary summary = productService.getInventorySummary();
+
+        assertNotNull(summary);
+        assertEquals(3, summary.getTotalProducts());
+        assertEquals(55, summary.getTotalUnits());
+        assertEquals(2, summary.getLowStockProducts()); // P-LOW (5 <= 10) and P-OUT (0 <= 5)
+        assertEquals(1, summary.getOutOfStockProducts()); // P-OUT (0)
+
+        // Verify product records in repository are untouched
+        Product normal = productService.findProductBySku("P-NORMAL").orElseThrow();
+        assertEquals(50, normal.getQuantity());
+        Product low = productService.findProductBySku("P-LOW").orElseThrow();
+        assertEquals(5, low.getQuantity());
+        Product out = productService.findProductBySku("P-OUT").orElseThrow();
+        assertEquals(0, out.getQuantity());
     }
 }

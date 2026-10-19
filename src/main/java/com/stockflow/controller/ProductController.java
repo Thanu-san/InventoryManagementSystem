@@ -1,6 +1,7 @@
 package com.stockflow.controller;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.service.ProductService;
@@ -40,7 +41,8 @@ public class ProductController {
             System.out.println("7. Stock Out");
             System.out.println("8. View Transaction History");
             System.out.println("9. Low-Stock Report");
-            System.out.println("10. Back to Main Menu");
+            System.out.println("10. Inventory Summary Report");
+            System.out.println("11. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -54,7 +56,8 @@ public class ProductController {
                 case "7" -> handleStockOut();
                 case "8" -> handleViewHistory();
                 case "9" -> handleLowStockReport();
-                case "10" -> back = true;
+                case "10" -> handleInventorySummaryReport();
+                case "11" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -370,6 +373,19 @@ public class ProductController {
                     p.getPrice(),
                     p.getQuantity(),
                     p.getMinimumStock());
+        }
+    }
+
+    private void handleInventorySummaryReport() {
+        System.out.println("\n[ Inventory Summary Report ]");
+        try {
+            InventorySummary summary = productService.getInventorySummary();
+            System.out.println("Total Products:        " + summary.getTotalProducts());
+            System.out.println("Total Units in Stock:  " + summary.getTotalUnits());
+            System.out.println("Low-Stock Products:    " + summary.getLowStockProducts());
+            System.out.println("Out-of-Stock Products: " + summary.getOutOfStockProducts());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 }

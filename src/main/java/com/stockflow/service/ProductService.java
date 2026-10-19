@@ -1,6 +1,7 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
@@ -84,6 +85,16 @@ public class ProductService {
      */
     public List<Product> getLowStockProducts() {
         return productRepository.findLowStockProducts();
+    }
+
+    /**
+     * Calculates and returns aggregate inventory metrics:
+     * total products, total units in stock, low-stock count, and out-of-stock count.
+     *
+     * @return summary snapshot of inventory
+     */
+    public InventorySummary getInventorySummary() {
+        return productRepository.getInventorySummary();
     }
 
     /**

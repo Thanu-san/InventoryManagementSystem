@@ -1,5 +1,6 @@
 package com.stockflow.repository;
 
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.Product;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -171,5 +172,51 @@ class InMemoryProductRepositoryTest {
         assertEquals("SKU-A", lowStock.get(0).getSku()); // qty 1, SKU-A
         assertEquals("SKU-B", lowStock.get(1).getSku()); // qty 1, SKU-B
         assertEquals("SKU-C", lowStock.get(2).getSku()); // qty 3, SKU-C
+    }
+
+    @Test
+    @DisplayName("Should return all zeroes when repository is empty")
+    void shouldReturnAllZeroesWhenRepositoryIsEmpty() {
+        InventorySummary summary = repository.getInventorySummary();
+
+        assertNotNull(summary);
+        assertEquals(0, summary.getTotalProducts());
+        assertEquals(0, summary.getTotalUnits());
+        assertEquals(0, summary.getLowStockProducts());
+        assertEquals(0, summary.getOutOfStockProducts());
+    }
+
+    @Test
+    @DisplayName("Should accurately calculate summary metrics with mixed products")
+    void shouldCalculateSummaryMetricsWithMixedProducts() {
+        // Normal product: qty > minStock
+        repository.save(new Product("SKU-NORM", "Normal Item", new BigDecimal("10.00"), 20, 5));
+        // Low-stock product: qty <= minStock, but qty > 0
+        repository.save(new Product("SKU-LOW", "Low Item", new BigDecimal("15.00"), 3, 5));
+        // Out-of-stock product: qty == 0, minStock == 5 (counts as BOTH low-stock and out-of-stock)
+        repository.save(new Product("SKU-OUT", "Out Item", new BigDecimal("20.00"), 0, 5));
+        // Another normal product
+        repository.save(new Product("SKU-NORM2", "Normal Item 2", new BigDecimal("25.00"), 10, 5));
+
+        InventorySummary summary = repository.getInventorySummary();
+
+        assertEquals(4, summary.getTotalProducts(), "Total products should count all 4 records");
+        assertEquals(33, summary.getTotalUnits(), "Total units should be 20 + 3 + 0 + 10 = 33");
+        assertEquals(2, summary.getLowStockProducts(), "Low-stock should count SKU-LOW (3<=5) and SKU-OUT (0<=5)");
+        assertEquals(1, summary.getOutOfStockProducts(), "Out-of-stock should count SKU-OUT (0)");
+    }
+
+    @Test
+    @DisplayName("Should correctly handle out-of-stock product with zero minimum stock")
+    void shouldHandleOutOfStockWithZeroMinStock() {
+        // Out of stock, min stock 0: 0 <= 0 is true, so counts as both low-stock and out-of-stock
+        repository.save(new Product("SKU-ZERO", "Zero Item", new BigDecimal("5.00"), 0, 0));
+
+        InventorySummary summary = repository.getInventorySummary();
+
+        assertEquals(1, summary.getTotalProducts());
+        assertEquals(0, summary.getTotalUnits());
+        assertEquals(1, summary.getLowStockProducts());
+        assertEquals(1, summary.getOutOfStockProducts());
     }
 }

@@ -2,6 +2,7 @@ package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.Product;
 
 import java.sql.Connection;
@@ -148,6 +149,34 @@ public class JdbcProductRepository implements ProductRepository {
             return products;
         } catch (SQLException e) {
             throw new RuntimeException("Database error while retrieving low-stock products: " + e.getMessage(), e);
+        }
+    }
+
+    private static final String SUMMARY_SQL =
+            "SELECT " +
+            "COUNT(*) AS total_products, " +
+            "COALESCE(SUM(quantity), 0) AS total_units, " +
+            "COUNT(CASE WHEN quantity <= minimum_stock THEN 1 END) AS low_stock_products, " +
+            "COUNT(CASE WHEN quantity = 0 THEN 1 END) AS out_of_stock_products " +
+            "FROM products";
+
+    @Override
+    public InventorySummary getInventorySummary() {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SUMMARY_SQL);
+             ResultSet resultSet = statement.executeQuery()) {
+
+            if (resultSet.next()) {
+                long totalProducts = resultSet.getLong("total_products");
+                long totalUnits = resultSet.getLong("total_units");
+                long lowStockProducts = resultSet.getLong("low_stock_products");
+                long outOfStockProducts = resultSet.getLong("out_of_stock_products");
+
+                return new InventorySummary(totalProducts, totalUnits, lowStockProducts, outOfStockProducts);
+            }
+            return new InventorySummary(0, 0, 0, 0);
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while retrieving inventory summary: " + e.getMessage(), e);
         }
     }
 

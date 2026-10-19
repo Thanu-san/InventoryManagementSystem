@@ -1,6 +1,7 @@
 package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
+import com.stockflow.model.InventorySummary;
 import com.stockflow.model.Product;
 import com.stockflow.service.ProductService;
 import org.junit.jupiter.api.AfterEach;
@@ -396,5 +397,40 @@ class JdbcProductRepositoryTest {
         assertEquals(2, testLowStock.size());
         assertEquals(sku2, testLowStock.get(0).getSku(), "SKU-A should come before SKU-B");
         assertEquals(sku1, testLowStock.get(1).getSku());
+    }
+
+    @Test
+    @DisplayName("Should execute single aggregate query in PostgreSQL and return accurate InventorySummary metrics")
+    void shouldReturnAccurateInventorySummaryFromPostgreSql() {
+        InventorySummary before = repository.getInventorySummary();
+        assertNotNull(before);
+        assertTrue(before.getTotalProducts() >= 0);
+        assertTrue(before.getTotalUnits() >= 0);
+        assertTrue(before.getLowStockProducts() >= 0);
+        assertTrue(before.getOutOfStockProducts() >= 0);
+
+        long ts = System.currentTimeMillis();
+        String skuNormal = "SUM-NORM-" + ts;
+        String skuLow = "SUM-LOW-" + ts;
+        String skuOut = "SUM-OUT-" + ts;
+
+        extraTestSkus.add(skuNormal);
+        extraTestSkus.add(skuLow);
+        extraTestSkus.add(skuOut);
+
+        // Product 1: normal (qty 40, min 10)
+        repository.save(new Product(skuNormal, "Summary Normal", new BigDecimal("10.00"), 40, 10));
+        // Product 2: low-stock (qty 5, min 10) -> 5 <= 10
+        repository.save(new Product(skuLow, "Summary Low", new BigDecimal("20.00"), 5, 10));
+        // Product 3: out-of-stock and low-stock (qty 0, min 10) -> 0 <= 10 and 0 == 0
+        repository.save(new Product(skuOut, "Summary Out", new BigDecimal("30.00"), 0, 10));
+
+        InventorySummary after = repository.getInventorySummary();
+        assertNotNull(after);
+
+        assertEquals(before.getTotalProducts() + 3, after.getTotalProducts(), "Total products should increase by 3");
+        assertEquals(before.getTotalUnits() + 45, after.getTotalUnits(), "Total units should increase by 40 + 5 + 0 = 45");
+        assertEquals(before.getLowStockProducts() + 2, after.getLowStockProducts(), "Low-stock products should increase by 2 (skuLow and skuOut)");
+        assertEquals(before.getOutOfStockProducts() + 1, after.getOutOfStockProducts(), "Out-of-stock products should increase by 1 (skuOut)");
     }
 }
