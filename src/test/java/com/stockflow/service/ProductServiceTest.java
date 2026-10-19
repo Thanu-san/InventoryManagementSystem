@@ -779,4 +779,91 @@ class ProductServiceTest {
         assertEquals(15, stored.getQuantity());
         assertEquals(5, stored.getMinimumStock());
     }
+
+    @Test
+    @DisplayName("Should search products by name with partial and case-insensitive matching")
+    void shouldSearchProductsByNameWithPartialAndCaseInsensitiveMatching() {
+        productService.createProduct("P-KB1", "Mechanical Keyboard", new BigDecimal("89.99"), 10, 2);
+        productService.createProduct("P-KB2", "Gaming Keyboard", new BigDecimal("59.99"), 5, 2);
+        productService.createProduct("P-MS1", "Optical Mouse", new BigDecimal("25.00"), 8, 2);
+
+        List<Product> results = productService.searchProductsByName("key");
+        assertEquals(2, results.size());
+        assertEquals("P-KB1", results.get(0).getSku());
+        assertEquals("P-KB2", results.get(1).getSku());
+
+        List<Product> upperResults = productService.searchProductsByName("KEYBOARD");
+        assertEquals(2, upperResults.size());
+
+        List<Product> mouseResults = productService.searchProductsByName("mouse");
+        assertEquals(1, mouseResults.size());
+        assertEquals("P-MS1", mouseResults.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should trim leading and trailing spaces from search query in service")
+    void shouldTrimLeadingAndTrailingSpacesFromSearchQueryInService() {
+        productService.createProduct("P-KB1", "Mechanical Keyboard", new BigDecimal("89.99"), 10, 2);
+
+        List<Product> results = productService.searchProductsByName("   keyboard   ");
+        assertEquals(1, results.size());
+        assertEquals("P-KB1", results.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when search term is null, empty, or whitespace")
+    void shouldThrowValidationExceptionWhenSearchTermIsBlankOrNull() {
+        productService.createProduct("P-KB1", "Mechanical Keyboard", new BigDecimal("89.99"), 10, 2);
+
+        ValidationException ex1 = assertThrows(ValidationException.class, () ->
+                productService.searchProductsByName(null));
+        assertTrue(ex1.getMessage().contains("cannot be blank"));
+
+        ValidationException ex2 = assertThrows(ValidationException.class, () ->
+                productService.searchProductsByName(""));
+        assertTrue(ex2.getMessage().contains("cannot be blank"));
+
+        ValidationException ex3 = assertThrows(ValidationException.class, () ->
+                productService.searchProductsByName("    "));
+        assertTrue(ex3.getMessage().contains("cannot be blank"));
+    }
+
+    @Test
+    @DisplayName("Should return empty list when no products match search term")
+    void shouldReturnEmptyListWhenNoProductsMatchSearchTerm() {
+        productService.createProduct("P-KB1", "Mechanical Keyboard", new BigDecimal("89.99"), 10, 2);
+
+        List<Product> results = productService.searchProductsByName("Monitor");
+        assertNotNull(results);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should confirm existing findProductBySku functionality is preserved and unaffected")
+    void shouldConfirmExistingFindProductBySkuStillWorks() {
+        productService.createProduct("FIND-SKU-1", "Desk Lamp", new BigDecimal("19.99"), 20, 5);
+
+        Optional<Product> found = productService.findProductBySku("FIND-SKU-1");
+        assertTrue(found.isPresent());
+        assertEquals("Desk Lamp", found.get().getName());
+
+        Optional<Product> notFound = productService.findProductBySku("NON-EXISTENT");
+        assertTrue(notFound.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should ensure search by name does not mutate product data")
+    void shouldNotMutateProductDataDuringSearch() {
+        productService.createProduct("MUT-1", "Webcam HD", new BigDecimal("45.00"), 12, 3);
+
+        List<Product> results = productService.searchProductsByName("webcam");
+        assertEquals(1, results.size());
+
+        Product p = productService.findProductBySku("MUT-1").orElseThrow();
+        assertEquals("MUT-1", p.getSku());
+        assertEquals("Webcam HD", p.getName());
+        assertEquals(new BigDecimal("45.00"), p.getPrice());
+        assertEquals(12, p.getQuantity());
+        assertEquals(3, p.getMinimumStock());
+    }
 }

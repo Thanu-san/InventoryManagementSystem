@@ -45,7 +45,8 @@ public class ProductController {
             System.out.println("9. Low-Stock Report");
             System.out.println("10. Inventory Summary Report");
             System.out.println("11. Inventory Valuation Report");
-            System.out.println("12. Back to Main Menu");
+            System.out.println("12. Search Products by Name");
+            System.out.println("13. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -61,7 +62,8 @@ public class ProductController {
                 case "9" -> handleLowStockReport();
                 case "10" -> handleInventorySummaryReport();
                 case "11" -> handleInventoryValuationReport();
-                case "12" -> back = true;
+                case "12" -> handleSearchProductsByName();
+                case "13" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -160,6 +162,39 @@ public class ProductController {
             }
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        }
+    }
+
+    private void handleSearchProductsByName() {
+        System.out.println("\n[ Search Products by Name ]");
+        System.out.print("Enter product name to search: ");
+        String nameQuery = scanner.nextLine();
+
+        try {
+            List<Product> products = productService.searchProductsByName(nameQuery);
+            if (products.isEmpty()) {
+                System.out.println("No products found matching: " + nameQuery.trim());
+                return;
+            }
+
+            // Print header
+            System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
+                    "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
+            System.out.println("-".repeat(84));
+
+            for (Product p : products) {
+                System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
+                        p.getId(),
+                        p.getSku(),
+                        p.getName(),
+                        p.getPrice(),
+                        p.getQuantity(),
+                        p.getMinimumStock());
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 

@@ -497,4 +497,98 @@ class JdbcProductRepositoryTest {
         assertEquals(0, retrievedZero.getQuantity());
         assertEquals(0, new BigDecimal("50.00").compareTo(retrievedZero.getPrice()));
     }
+
+    @Test
+    @DisplayName("Should search products by name in PostgreSQL case-insensitively and ordered by SKU ascending")
+    void shouldSearchProductsByNameInPostgreSqlCaseInsensitiveAndOrderedBySku() {
+        long ts = System.currentTimeMillis();
+        String sku1 = "SEARCH-B-" + ts;
+        String sku2 = "SEARCH-A-" + ts;
+        String sku3 = "SEARCH-C-" + ts;
+
+        extraTestSkus.add(sku1);
+        extraTestSkus.add(sku2);
+        extraTestSkus.add(sku3);
+
+        repository.save(new Product(sku1, "Mechanical Gaming Keyboard", new BigDecimal("79.99"), 10, 2));
+        repository.save(new Product(sku2, "Ergonomic Office Keyboard", new BigDecimal("59.99"), 5, 2));
+        repository.save(new Product(sku3, "Optical Gaming Mouse", new BigDecimal("29.99"), 8, 2));
+
+        // Partial and case-insensitive search
+        List<Product> results = repository.searchByName("keyboard").stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+
+        assertEquals(2, results.size());
+        assertEquals(sku2, results.get(0).getSku(), "SEARCH-A should precede SEARCH-B");
+        assertEquals("Ergonomic Office Keyboard", results.get(0).getName());
+        assertEquals(sku1, results.get(1).getSku(), "SEARCH-B should follow SEARCH-A");
+        assertEquals("Mechanical Gaming Keyboard", results.get(1).getName());
+
+        // Uppercase query
+        List<Product> upperResults = repository.searchByName("KEY").stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(2, upperResults.size());
+    }
+
+    @Test
+    @DisplayName("Should handle SQL wildcard characters literally without pattern expansion in PostgreSQL")
+    void shouldHandleSqlWildcardCharactersLiterallyWithoutPatternExpansion() {
+        long ts = System.currentTimeMillis();
+        String skuPerc = "WILD-PERC-" + ts;
+        String skuOther = "WILD-OTHER-" + ts;
+        String skuUnder = "WILD-UNDER-" + ts;
+        String skuLetter = "WILD-LETTER-" + ts;
+        String skuExcl = "WILD-EXCL-" + ts;
+
+        extraTestSkus.add(skuPerc);
+        extraTestSkus.add(skuOther);
+        extraTestSkus.add(skuUnder);
+        extraTestSkus.add(skuLetter);
+        extraTestSkus.add(skuExcl);
+
+        repository.save(new Product(skuPerc, "100% Wool Sweater", new BigDecimal("99.99"), 5, 1));
+        repository.save(new Product(skuOther, "1000 Watt Blender", new BigDecimal("89.99"), 3, 1));
+        repository.save(new Product(skuUnder, "Cable_USB Cord", new BigDecimal("9.99"), 20, 5));
+        repository.save(new Product(skuLetter, "CableXUSB Cord", new BigDecimal("11.99"), 15, 5));
+        repository.save(new Product(skuExcl, "Super!Sale Monitor", new BigDecimal("199.99"), 2, 1));
+
+        // Literal '%' must match only the product containing '%', not '1000'
+        List<Product> percResults = repository.searchByName("100%").stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(1, percResults.size());
+        assertEquals(skuPerc, percResults.get(0).getSku());
+
+        // Literal '_' must match only 'Cable_USB', not 'CableXUSB'
+        List<Product> underResults = repository.searchByName("Cable_USB").stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(1, underResults.size());
+        assertEquals(skuUnder, underResults.get(0).getSku());
+
+        // Literal '!' must match 'Super!Sale'
+        List<Product> exclResults = repository.searchByName("Super!Sale").stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(1, exclResults.size());
+        assertEquals(skuExcl, exclResults.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should return empty list when no products match search query in PostgreSQL")
+    void shouldReturnEmptyListWhenNoProductsMatchInPostgreSql() {
+        List<Product> results = repository.searchByName("NonExistentProductNameXYZ999");
+        assertNotNull(results);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should return empty list for null or whitespace query in PostgreSQL")
+    void shouldReturnEmptyListForBlankOrNullQueryInPostgreSql() {
+        assertTrue(repository.searchByName(null).isEmpty());
+        assertTrue(repository.searchByName("").isEmpty());
+        assertTrue(repository.searchByName("    ").isEmpty());
+    }
 }

@@ -219,4 +219,87 @@ class InMemoryProductRepositoryTest {
         assertEquals(1, summary.getLowStockProducts());
         assertEquals(1, summary.getOutOfStockProducts());
     }
+
+    @Test
+    @DisplayName("Should find products by exact and partial name case-insensitively")
+    void shouldFindProductsByExactAndPartialNameCaseInsensitive() {
+        repository.save(new Product("KB-001", "Mechanical Keyboard", new BigDecimal("79.99"), 10, 2));
+        repository.save(new Product("KB-002", "Wireless Keyboard", new BigDecimal("49.99"), 5, 2));
+        repository.save(new Product("MS-001", "Gaming Mouse", new BigDecimal("29.99"), 8, 2));
+
+        // Partial and case-insensitive
+        List<Product> keyResults = repository.searchByName("key");
+        assertEquals(2, keyResults.size());
+        assertEquals("KB-001", keyResults.get(0).getSku());
+        assertEquals("KB-002", keyResults.get(1).getSku());
+
+        // Uppercase query
+        List<Product> upperResults = repository.searchByName("KEYBOARD");
+        assertEquals(2, upperResults.size());
+
+        // Exact name match
+        List<Product> mouseResults = repository.searchByName("Gaming Mouse");
+        assertEquals(1, mouseResults.size());
+        assertEquals("MS-001", mouseResults.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should trim leading and trailing spaces from search query")
+    void shouldTrimLeadingAndTrailingSpacesInSearchQuery() {
+        repository.save(new Product("KB-001", "Mechanical Keyboard", new BigDecimal("79.99"), 10, 2));
+
+        List<Product> results = repository.searchByName("   keyboard   ");
+        assertEquals(1, results.size());
+        assertEquals("KB-001", results.get(0).getSku());
+    }
+
+    @Test
+    @DisplayName("Should return empty list when search query is blank or null")
+    void shouldReturnEmptyListWhenSearchQueryIsBlankOrNull() {
+        repository.save(new Product("KB-001", "Mechanical Keyboard", new BigDecimal("79.99"), 10, 2));
+
+        assertTrue(repository.searchByName(null).isEmpty());
+        assertTrue(repository.searchByName("").isEmpty());
+        assertTrue(repository.searchByName("   ").isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should return empty list when no products match the query")
+    void shouldReturnEmptyListWhenNoProductsMatch() {
+        repository.save(new Product("KB-001", "Mechanical Keyboard", new BigDecimal("79.99"), 10, 2));
+
+        List<Product> results = repository.searchByName("Headphones");
+        assertNotNull(results);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should order search results deterministically by SKU ascending")
+    void shouldOrderSearchResultsDeterministicallyBySkuAscending() {
+        repository.save(new Product("SKU-Z", "Alpha Monitor", new BigDecimal("199.99"), 5, 1));
+        repository.save(new Product("SKU-A", "Beta Monitor", new BigDecimal("149.99"), 8, 1));
+        repository.save(new Product("SKU-M", "Gamma Monitor", new BigDecimal("179.99"), 3, 1));
+
+        List<Product> results = repository.searchByName("Monitor");
+        assertEquals(3, results.size());
+        assertEquals("SKU-A", results.get(0).getSku());
+        assertEquals("SKU-M", results.get(1).getSku());
+        assertEquals("SKU-Z", results.get(2).getSku());
+    }
+
+    @Test
+    @DisplayName("Should not mutate repository data during search")
+    void shouldNotMutateRepositoryDataDuringSearch() {
+        Product original = repository.save(new Product("KB-001", "Keyboard", new BigDecimal("25.00"), 10, 2));
+
+        List<Product> results = repository.searchByName("Keyboard");
+        assertEquals(1, results.size());
+
+        Product found = repository.findBySku("KB-001").orElseThrow();
+        assertEquals(original.getId(), found.getId());
+        assertEquals(original.getName(), found.getName());
+        assertEquals(original.getPrice(), found.getPrice());
+        assertEquals(original.getQuantity(), found.getQuantity());
+        assertEquals(original.getMinimumStock(), found.getMinimumStock());
+    }
 }

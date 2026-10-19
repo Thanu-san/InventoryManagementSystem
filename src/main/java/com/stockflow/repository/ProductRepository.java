@@ -56,4 +56,13 @@ public interface ProductRepository {
      * total products, total units, low-stock count, and out-of-stock count.
      */
     InventorySummary getInventorySummary();
+
+    /**
+     * Searches for products whose name contains the specified search term (case-insensitive).
+     * Returns matching products ordered by SKU ascending.
+     *
+     * @param nameQuery the partial or full product name to search for
+     * @return list of matching products ordered by SKU ascending
+     */
+    List<Product> searchByName(String nameQuery);
 }

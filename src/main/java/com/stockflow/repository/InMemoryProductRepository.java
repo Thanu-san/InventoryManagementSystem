@@ -4,9 +4,11 @@ import com.stockflow.model.InventorySummary;
 import com.stockflow.model.Product;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -82,6 +84,18 @@ public class InMemoryProductRepository implements ProductRepository {
                 .count();
 
         return new InventorySummary(totalProducts, totalUnits, lowStockProducts, outOfStockProducts);
+    }
+
+    @Override
+    public List<Product> searchByName(String nameQuery) {
+        if (nameQuery == null || nameQuery.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        String lowerQuery = nameQuery.trim().toLowerCase(Locale.ROOT);
+        return productsBySku.values().stream()
+                .filter(p -> p.getName() != null && p.getName().toLowerCase(Locale.ROOT).contains(lowerQuery))
+                .sorted(Comparator.comparing(Product::getSku))
+                .collect(Collectors.toList());
     }
 
     @Override

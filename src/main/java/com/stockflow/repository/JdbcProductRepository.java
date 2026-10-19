@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -177,6 +178,44 @@ public class JdbcProductRepository implements ProductRepository {
             return new InventorySummary(0, 0, 0, 0);
         } catch (SQLException e) {
             throw new RuntimeException("Database error while retrieving inventory summary: " + e.getMessage(), e);
+        }
+    }
+
+    private static final String SEARCH_BY_NAME_SQL =
+            "SELECT id, sku, name, price, quantity, minimum_stock FROM products " +
+            "WHERE name ILIKE ? ESCAPE '!' ORDER BY sku ASC";
+
+    private String escapeLikePattern(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("!", "!!")
+                   .replace("%", "!%")
+                   .replace("_", "!_");
+    }
+
+    @Override
+    public List<Product> searchByName(String nameQuery) {
+        if (nameQuery == null || nameQuery.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String pattern = "%" + escapeLikePattern(nameQuery.trim()) + "%";
+
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SEARCH_BY_NAME_SQL)) {
+
+            statement.setString(1, pattern);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<Product> products = new ArrayList<>();
+                while (resultSet.next()) {
+                    products.add(mapRowToProduct(resultSet));
+                }
+                return products;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while searching products by name: " + e.getMessage(), e);
         }
     }
 

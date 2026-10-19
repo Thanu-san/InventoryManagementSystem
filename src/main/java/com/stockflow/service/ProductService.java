@@ -147,6 +147,21 @@ public class ProductService {
     }
 
     /**
+     * Searches for products by a partial product name (case-insensitive).
+     * Validates that the input search term is not blank and normalizes surrounding spaces.
+     *
+     * @param nameQuery the partial or full product name to search for
+     * @return list of matching products ordered by SKU ascending
+     * @throws ValidationException if the search term is null or blank
+     */
+    public List<Product> searchProductsByName(String nameQuery) {
+        if (nameQuery == null || nameQuery.trim().isEmpty()) {
+            throw new ValidationException("Search term cannot be blank.");
+        }
+        return productRepository.searchByName(nameQuery.trim());
+    }
+
+    /**
      * Updates editable fields (name, price, minimumStock) of an existing product.
      * Preserves ID, SKU, and quantity invariants.
      */
