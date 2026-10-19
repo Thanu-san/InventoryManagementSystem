@@ -3,6 +3,8 @@ package com.stockflow.controller;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
+import com.stockflow.model.InventoryValuationItem;
+import com.stockflow.model.InventoryValuationReport;
 import com.stockflow.model.Product;
 import com.stockflow.service.ProductService;
 
@@ -42,7 +44,8 @@ public class ProductController {
             System.out.println("8. View Transaction History");
             System.out.println("9. Low-Stock Report");
             System.out.println("10. Inventory Summary Report");
-            System.out.println("11. Back to Main Menu");
+            System.out.println("11. Inventory Valuation Report");
+            System.out.println("12. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -57,7 +60,8 @@ public class ProductController {
                 case "8" -> handleViewHistory();
                 case "9" -> handleLowStockReport();
                 case "10" -> handleInventorySummaryReport();
-                case "11" -> back = true;
+                case "11" -> handleInventoryValuationReport();
+                case "12" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -384,6 +388,37 @@ public class ProductController {
             System.out.println("Total Units in Stock:  " + summary.getTotalUnits());
             System.out.println("Low-Stock Products:    " + summary.getLowStockProducts());
             System.out.println("Out-of-Stock Products: " + summary.getOutOfStockProducts());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleInventoryValuationReport() {
+        System.out.println("\n[ Inventory Valuation Report ]");
+        try {
+            InventoryValuationReport report = productService.getInventoryValuationReport();
+            if (report.getItems().isEmpty()) {
+                System.out.println("No products found in inventory.");
+                return;
+            }
+
+            System.out.printf("%-12s | %-25s | %-12s | %-10s | %-15s%n",
+                    "SKU", "PRODUCT", "UNIT PRICE", "QUANTITY", "INVENTORY VALUE");
+            System.out.println("-".repeat(86));
+
+            for (InventoryValuationItem item : report.getItems()) {
+                System.out.printf("%-12s | %-25s | $%-11.2f | %-10d | $%-14.2f%n",
+                        item.getSku(),
+                        item.getName(),
+                        item.getUnitPrice(),
+                        item.getQuantity(),
+                        item.getInventoryValue());
+            }
+
+            System.out.println("-".repeat(86));
+            System.out.printf("%-12s | %-25s | %-12s | %-10d | $%-14.2f%n",
+                    "", "Total", "", report.getTotalQuantity(), report.getTotalValue());
+            System.out.println("-".repeat(86));
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }

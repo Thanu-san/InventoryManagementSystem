@@ -3,6 +3,8 @@ package com.stockflow.service;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
+import com.stockflow.model.InventoryValuationItem;
+import com.stockflow.model.InventoryValuationReport;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
@@ -654,5 +656,127 @@ class ProductServiceTest {
         assertEquals(5, low.getQuantity());
         Product out = productService.findProductBySku("P-OUT").orElseThrow();
         assertEquals(0, out.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should return empty valuation report with zero units and 0.00 value when inventory is empty")
+    void shouldReturnEmptyValuationReportWhenInventoryIsEmpty() {
+        InventoryValuationReport report = productService.getInventoryValuationReport();
+
+        assertNotNull(report);
+        assertTrue(report.getItems().isEmpty(), "Items list must be empty for empty inventory");
+        assertEquals(0L, report.getTotalQuantity());
+        assertEquals(new BigDecimal("0.00"), report.getTotalValue());
+    }
+
+    @Test
+    @DisplayName("Should calculate valuation correctly for a single product with known price and quantity")
+    void shouldCalculateValuationForSingleProduct() {
+        productService.createProduct("KB-001", "Keyboard", new BigDecimal("25.00"), 10, 3);
+
+        InventoryValuationReport report = productService.getInventoryValuationReport();
+
+        assertNotNull(report);
+        assertEquals(1, report.getItems().size());
+        InventoryValuationItem item = report.getItems().get(0);
+        assertEquals("KB-001", item.getSku());
+        assertEquals("Keyboard", item.getName());
+        assertEquals(new BigDecimal("25.00"), item.getUnitPrice());
+        assertEquals(10, item.getQuantity());
+        assertEquals(new BigDecimal("250.00"), item.getInventoryValue());
+
+        assertEquals(10L, report.getTotalQuantity());
+        assertEquals(new BigDecimal("250.00"), report.getTotalValue());
+    }
+
+    @Test
+    @DisplayName("Should calculate valuation for multiple products and their combined totals")
+    void shouldCalculateValuationForMultipleProductsAndCombinedTotal() {
+        productService.createProduct("KB-001", "Keyboard", new BigDecimal("25.00"), 10, 2);
+        productService.createProduct("MS-001", "Mouse", new BigDecimal("12.50"), 8, 2);
+
+        InventoryValuationReport report = productService.getInventoryValuationReport();
+
+        assertNotNull(report);
+        assertEquals(2, report.getItems().size());
+
+        InventoryValuationItem item1 = report.getItems().get(0);
+        assertEquals("KB-001", item1.getSku());
+        assertEquals("Keyboard", item1.getName());
+        assertEquals(new BigDecimal("25.00"), item1.getUnitPrice());
+        assertEquals(10, item1.getQuantity());
+        assertEquals(new BigDecimal("250.00"), item1.getInventoryValue());
+
+        InventoryValuationItem item2 = report.getItems().get(1);
+        assertEquals("MS-001", item2.getSku());
+        assertEquals("Mouse", item2.getName());
+        assertEquals(new BigDecimal("12.50"), item2.getUnitPrice());
+        assertEquals(8, item2.getQuantity());
+        assertEquals(new BigDecimal("100.00"), item2.getInventoryValue());
+
+        assertEquals(18L, report.getTotalQuantity(), "Total units should be 10 + 8 = 18");
+        assertEquals(new BigDecimal("350.00"), report.getTotalValue(), "Total value should be 250.00 + 100.00 = 350.00");
+    }
+
+    @Test
+    @DisplayName("Should handle product with zero quantity contributing 0.00 to valuation")
+    void shouldHandleProductWithZeroQuantityInValuationReport() {
+        productService.createProduct("IN-STOCK", "In Stock Item", new BigDecimal("20.00"), 5, 2);
+        productService.createProduct("OUT-STOCK", "Out of Stock Item", new BigDecimal("50.00"), 0, 2);
+
+        InventoryValuationReport report = productService.getInventoryValuationReport();
+
+        assertNotNull(report);
+        assertEquals(2, report.getItems().size());
+
+        InventoryValuationItem outItem = report.getItems().stream()
+                .filter(i -> "OUT-STOCK".equals(i.getSku()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(0, outItem.getQuantity());
+        assertEquals(new BigDecimal("0.00"), outItem.getInventoryValue());
+
+        assertEquals(5L, report.getTotalQuantity());
+        assertEquals(new BigDecimal("100.00"), report.getTotalValue());
+    }
+
+    @Test
+    @DisplayName("Should maintain exact decimal monetary precision without rounding errors")
+    void shouldMaintainDecimalMonetaryPrecisionWithoutRoundingErrors() {
+        // 19.99 * 3 = 59.97
+        productService.createProduct("DEC-1", "Item 1", new BigDecimal("19.99"), 3, 1);
+        // 5.55 * 7 = 38.85
+        productService.createProduct("DEC-2", "Item 2", new BigDecimal("5.55"), 7, 1);
+        // 0.99 * 10 = 9.90
+        productService.createProduct("DEC-3", "Item 3", new BigDecimal("0.99"), 10, 1);
+
+        InventoryValuationReport report = productService.getInventoryValuationReport();
+
+        assertNotNull(report);
+        assertEquals(3, report.getItems().size());
+        assertEquals(20L, report.getTotalQuantity());
+        // 59.97 + 38.85 + 9.90 = 108.72
+        assertEquals(new BigDecimal("108.72"), report.getTotalValue());
+    }
+
+    @Test
+    @DisplayName("Should not mutate products or stock quantities when generating valuation report")
+    void shouldNotMutateProductsOrStockQuantitiesDuringValuationReport() {
+        productService.createProduct("STATIC-1", "Static Product", new BigDecimal("49.99"), 15, 5);
+
+        // Generate report multiple times
+        InventoryValuationReport report1 = productService.getInventoryValuationReport();
+        InventoryValuationReport report2 = productService.getInventoryValuationReport();
+
+        assertEquals(report1.getTotalQuantity(), report2.getTotalQuantity());
+        assertEquals(report1.getTotalValue(), report2.getTotalValue());
+
+        // Ensure database/in-memory product state is completely preserved
+        Product stored = productService.findProductBySku("STATIC-1").orElseThrow();
+        assertEquals("STATIC-1", stored.getSku());
+        assertEquals("Static Product", stored.getName());
+        assertEquals(new BigDecimal("49.99"), stored.getPrice());
+        assertEquals(15, stored.getQuantity());
+        assertEquals(5, stored.getMinimumStock());
     }
 }

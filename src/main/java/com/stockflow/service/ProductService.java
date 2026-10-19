@@ -3,6 +3,8 @@ package com.stockflow.service;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
+import com.stockflow.model.InventoryValuationItem;
+import com.stockflow.model.InventoryValuationReport;
 import com.stockflow.model.Product;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
@@ -13,6 +15,7 @@ import com.stockflow.repository.JdbcProductRepository;
 import com.stockflow.repository.ProductRepository;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -95,6 +98,41 @@ public class ProductService {
      */
     public InventorySummary getInventorySummary() {
         return productRepository.getInventorySummary();
+    }
+
+    /**
+     * Generates an Inventory Valuation Report calculating valuation for each product
+     * and total inventory value across the entire catalog.
+     *
+     * @return inventory valuation report containing individual product valuations and aggregate totals
+     */
+    public InventoryValuationReport getInventoryValuationReport() {
+        List<Product> products = productRepository.findAll();
+        if (products.isEmpty()) {
+            return InventoryValuationReport.empty();
+        }
+
+        List<InventoryValuationItem> items = new ArrayList<>(products.size());
+        long totalQuantity = 0L;
+        BigDecimal totalValue = BigDecimal.ZERO;
+
+        for (Product product : products) {
+            int quantity = product.getQuantity();
+            BigDecimal inventoryValue = product.getPrice().multiply(BigDecimal.valueOf(quantity));
+
+            items.add(new InventoryValuationItem(
+                    product.getSku(),
+                    product.getName(),
+                    product.getPrice(),
+                    quantity,
+                    inventoryValue
+            ));
+
+            totalQuantity += quantity;
+            totalValue = totalValue.add(inventoryValue);
+        }
+
+        return new InventoryValuationReport(items, totalQuantity, totalValue);
     }
 
     /**

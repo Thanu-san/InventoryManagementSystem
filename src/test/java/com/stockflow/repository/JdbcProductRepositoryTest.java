@@ -2,6 +2,8 @@ package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
 import com.stockflow.model.InventorySummary;
+import com.stockflow.model.InventoryValuationItem;
+import com.stockflow.model.InventoryValuationReport;
 import com.stockflow.model.Product;
 import com.stockflow.service.ProductService;
 import org.junit.jupiter.api.AfterEach;
@@ -432,5 +434,67 @@ class JdbcProductRepositoryTest {
         assertEquals(before.getTotalUnits() + 45, after.getTotalUnits(), "Total units should increase by 40 + 5 + 0 = 45");
         assertEquals(before.getLowStockProducts() + 2, after.getLowStockProducts(), "Low-stock products should increase by 2 (skuLow and skuOut)");
         assertEquals(before.getOutOfStockProducts() + 1, after.getOutOfStockProducts(), "Out-of-stock products should increase by 1 (skuOut)");
+    }
+
+    @Test
+    @DisplayName("Should retrieve products from PostgreSQL and calculate accurate InventoryValuationReport")
+    void shouldCalculateAccurateInventoryValuationReportFromPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String sku1 = "VAL-1-" + ts;
+        String sku2 = "VAL-2-" + ts;
+        String skuZero = "VAL-ZERO-" + ts;
+
+        extraTestSkus.add(sku1);
+        extraTestSkus.add(sku2);
+        extraTestSkus.add(skuZero);
+
+        // Product 1: 25.00 * 10 = 250.00
+        repository.save(new Product(sku1, "Valuation Item 1", new BigDecimal("25.00"), 10, 2));
+        // Product 2: 12.50 * 8 = 100.00
+        repository.save(new Product(sku2, "Valuation Item 2", new BigDecimal("12.50"), 8, 2));
+        // Product 3: 50.00 * 0 = 0.00
+        repository.save(new Product(skuZero, "Zero Qty Item", new BigDecimal("50.00"), 0, 2));
+
+        ProductService service = new ProductService(repository);
+        InventoryValuationReport report = service.getInventoryValuationReport();
+
+        assertNotNull(report);
+
+        // Verify valuations for our test products retrieved from PostgreSQL
+        InventoryValuationItem item1 = report.getItems().stream()
+                .filter(i -> sku1.equals(i.getSku()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Item 1 not found in report"));
+        assertEquals("Valuation Item 1", item1.getName());
+        assertEquals(0, new BigDecimal("25.00").compareTo(item1.getUnitPrice()));
+        assertEquals(10, item1.getQuantity());
+        assertEquals(0, new BigDecimal("250.00").compareTo(item1.getInventoryValue()));
+
+        InventoryValuationItem item2 = report.getItems().stream()
+                .filter(i -> sku2.equals(i.getSku()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Item 2 not found in report"));
+        assertEquals("Valuation Item 2", item2.getName());
+        assertEquals(0, new BigDecimal("12.50").compareTo(item2.getUnitPrice()));
+        assertEquals(8, item2.getQuantity());
+        assertEquals(0, new BigDecimal("100.00").compareTo(item2.getInventoryValue()));
+
+        InventoryValuationItem itemZero = report.getItems().stream()
+                .filter(i -> skuZero.equals(i.getSku()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Zero Qty Item not found in report"));
+        assertEquals("Zero Qty Item", itemZero.getName());
+        assertEquals(0, new BigDecimal("50.00").compareTo(itemZero.getUnitPrice()));
+        assertEquals(0, itemZero.getQuantity());
+        assertEquals(0, new BigDecimal("0.00").compareTo(itemZero.getInventoryValue()));
+
+        // Confirm database records are not mutated
+        Product retrieved1 = repository.findBySku(sku1).orElseThrow();
+        assertEquals(10, retrieved1.getQuantity());
+        assertEquals(0, new BigDecimal("25.00").compareTo(retrieved1.getPrice()));
+
+        Product retrievedZero = repository.findBySku(skuZero).orElseThrow();
+        assertEquals(0, retrievedZero.getQuantity());
+        assertEquals(0, new BigDecimal("50.00").compareTo(retrievedZero.getPrice()));
     }
 }
