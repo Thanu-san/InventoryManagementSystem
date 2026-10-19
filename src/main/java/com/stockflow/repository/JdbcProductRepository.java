@@ -1,6 +1,7 @@
 package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
+import com.stockflow.exception.DatabaseException;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.PagedResult;
@@ -29,8 +30,8 @@ public class JdbcProductRepository implements ProductRepository {
 
     @Override
     public Product save(Product product) {
-        if (product == null) {
-            throw new IllegalArgumentException("Product cannot be null.");
+        if (product == null || product.getSku() == null || product.getSku().isBlank()) {
+            throw new IllegalArgumentException("Product and its SKU cannot be null or blank.");
         }
         if (product.getId() != null) {
             throw new IllegalArgumentException("Cannot save a product that already has an ID: " + product.getId());
@@ -58,7 +59,10 @@ public class JdbcProductRepository implements ProductRepository {
 
             return product;
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while saving product: " + e.getMessage(), e);
+            if ("23505".equals(e.getSQLState())) {
+                throw new ValidationException("Product with SKU '" + product.getSku().trim() + "' already exists.", e);
+            }
+            throw new DatabaseException("Database error while saving product: " + e.getMessage(), e);
         }
     }
 
@@ -67,10 +71,13 @@ public class JdbcProductRepository implements ProductRepository {
 
     @Override
     public Optional<Product> findBySku(String sku) {
+        if (sku == null || sku.isBlank()) {
+            return Optional.empty();
+        }
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement(SELECT_BY_SKU_SQL)) {
 
-            statement.setString(1, sku);
+            statement.setString(1, sku.trim());
 
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (resultSet.next()) {
@@ -80,7 +87,7 @@ public class JdbcProductRepository implements ProductRepository {
                 return Optional.empty();
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while finding product by SKU: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while finding product by SKU: " + e.getMessage(), e);
         }
     }
 
@@ -100,10 +107,13 @@ public class JdbcProductRepository implements ProductRepository {
 
     @Override
     public boolean existsBySku(String sku) {
+        if (sku == null || sku.isBlank()) {
+            return false;
+        }
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement(EXISTS_BY_SKU_SQL)) {
 
-            statement.setString(1, sku);
+            statement.setString(1, sku.trim());
 
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (resultSet.next()) {
@@ -112,7 +122,7 @@ public class JdbcProductRepository implements ProductRepository {
                 return false;
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while checking if product exists by SKU: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while checking if product exists by SKU: " + e.getMessage(), e);
         }
     }
 
@@ -132,7 +142,7 @@ public class JdbcProductRepository implements ProductRepository {
             }
             return products;
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while retrieving all products: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while retrieving all products: " + e.getMessage(), e);
         }
     }
 
@@ -152,7 +162,7 @@ public class JdbcProductRepository implements ProductRepository {
             }
             return products;
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while retrieving low-stock products: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while retrieving low-stock products: " + e.getMessage(), e);
         }
     }
 
@@ -180,7 +190,7 @@ public class JdbcProductRepository implements ProductRepository {
             }
             return new InventorySummary(0, 0, 0, 0);
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while retrieving inventory summary: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while retrieving inventory summary: " + e.getMessage(), e);
         }
     }
 
@@ -218,7 +228,7 @@ public class JdbcProductRepository implements ProductRepository {
                 return products;
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while searching products by name: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while searching products by name: " + e.getMessage(), e);
         }
     }
 
@@ -235,7 +245,7 @@ public class JdbcProductRepository implements ProductRepository {
             }
             return 0L;
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while counting products: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while counting products: " + e.getMessage(), e);
         }
     }
 
@@ -295,7 +305,7 @@ public class JdbcProductRepository implements ProductRepository {
                 return new PagedResult<>(products, page, size, totalElements);
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while retrieving paged products: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while retrieving paged products: " + e.getMessage(), e);
         }
     }
 
@@ -304,18 +314,21 @@ public class JdbcProductRepository implements ProductRepository {
 
     @Override
     public boolean update(Product product) {
+        if (product == null || product.getSku() == null || product.getSku().isBlank()) {
+            return false;
+        }
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement(UPDATE_SQL)) {
 
             statement.setString(1, product.getName());
             statement.setBigDecimal(2, product.getPrice());
             statement.setInt(3, product.getMinimumStock());
-            statement.setString(4, product.getSku());
+            statement.setString(4, product.getSku().trim());
 
             int rowsAffected = statement.executeUpdate();
             return rowsAffected > 0;
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while updating product: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while updating product: " + e.getMessage(), e);
         }
     }
 
@@ -324,19 +337,22 @@ public class JdbcProductRepository implements ProductRepository {
 
     @Override
     public boolean deleteBySku(String sku) {
+        if (sku == null || sku.isBlank()) {
+            return false;
+        }
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement(DELETE_BY_SKU_SQL)) {
 
-            statement.setString(1, sku);
+            statement.setString(1, sku.trim());
 
             int rowsAffected = statement.executeUpdate();
             return rowsAffected > 0;
         } catch (SQLException e) {
             if ("23503".equals(e.getSQLState())) {
                 throw new ValidationException(
-                        "Cannot delete product '" + sku + "' because it has associated transaction records.", e);
+                        "Cannot delete product '" + sku.trim() + "' because it has associated transaction records.", e);
             }
-            throw new RuntimeException("Database error while deleting product by SKU: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while deleting product by SKU: " + e.getMessage(), e);
         }
     }
 }

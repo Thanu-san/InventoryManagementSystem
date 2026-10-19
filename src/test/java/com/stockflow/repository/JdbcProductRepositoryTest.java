@@ -1,6 +1,7 @@
 package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
+import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryValuationItem;
 import com.stockflow.model.InventoryValuationReport;
@@ -847,5 +848,43 @@ class JdbcProductRepositoryTest {
 
         assertThrows(IllegalArgumentException.class, () ->
                 repository.findAll(1, 10, SortField.SKU, null));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when duplicate SKU is inserted directly into PostgreSQL")
+    void shouldThrowValidationExceptionWhenDuplicateSkuInsertedDirectlyIntoPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String dupSku = "DUP-DIRECT-" + ts;
+        extraTestSkus.add(dupSku);
+
+        Product first = new Product(dupSku, "First Product", new BigDecimal("10.00"), 5, 1);
+        repository.save(first);
+
+        Product duplicate = new Product(dupSku, "Duplicate Product", new BigDecimal("20.00"), 10, 2);
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                repository.save(duplicate));
+        assertTrue(ex.getMessage().contains("already exists"));
+    }
+
+    @Test
+    @DisplayName("Should reject save when product is null in PostgreSQL repository")
+    void shouldRejectSaveWhenProductIsNullInPostgreSql() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                repository.save(null));
+        assertTrue(ex.getMessage().contains("Product and its SKU cannot be null or blank"));
+    }
+
+    @Test
+    @DisplayName("Should return false when updating with null product in PostgreSQL")
+    void shouldReturnFalseWhenUpdatingWithNullProductInPostgreSql() {
+        assertFalse(repository.update(null));
+    }
+
+    @Test
+    @DisplayName("Should return false when deleting with null or blank SKU in PostgreSQL")
+    void shouldReturnFalseWhenDeletingWithNullOrBlankSkuInPostgreSql() {
+        assertFalse(repository.deleteBySku(null));
+        assertFalse(repository.deleteBySku("   "));
+        assertFalse(repository.deleteBySku(""));
     }
 }

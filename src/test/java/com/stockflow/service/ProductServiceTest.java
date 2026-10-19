@@ -953,4 +953,65 @@ class ProductServiceTest {
         assertEquals(8, stored.getQuantity());
         assertEquals(2, stored.getMinimumStock());
     }
+
+    @Test
+    @DisplayName("Should ensure failed update validation does not mutate existing product data")
+    void shouldEnsureFailedUpdateValidationDoesNotMutateExistingProductData() {
+        productService.createProduct("IMMUT-1", "Original Name", new BigDecimal("50.00"), 10, 2);
+
+        // 1. Blank name
+        assertThrows(ValidationException.class, () ->
+                productService.updateProduct("IMMUT-1", "   ", new BigDecimal("60.00"), 3));
+
+        // 2. Negative price
+        assertThrows(ValidationException.class, () ->
+                productService.updateProduct("IMMUT-1", "Changed Name", new BigDecimal("-10.00"), 3));
+
+        // 3. Negative minimum stock
+        assertThrows(ValidationException.class, () ->
+                productService.updateProduct("IMMUT-1", "Changed Name", new BigDecimal("60.00"), -1));
+
+        // Verify product remains completely unchanged
+        Product p = productService.findProductBySku("IMMUT-1").orElseThrow();
+        assertEquals("Original Name", p.getName());
+        assertEquals(new BigDecimal("50.00"), p.getPrice());
+        assertEquals(10, p.getQuantity());
+        assertEquals(2, p.getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should ensure failed stock movement validation does not mutate product quantity")
+    void shouldEnsureFailedStockMovementValidationDoesNotMutateProductQuantity() {
+        productService.createProduct("IMMUT-STK", "Stock Item", new BigDecimal("20.00"), 10, 2);
+
+        // 1. Invalid stock in quantity
+        assertThrows(ValidationException.class, () -> productService.stockIn("IMMUT-STK", 0));
+        assertThrows(ValidationException.class, () -> productService.stockIn("IMMUT-STK", -5));
+
+        // 2. Invalid stock out quantity
+        assertThrows(ValidationException.class, () -> productService.stockOut("IMMUT-STK", 0));
+        assertThrows(ValidationException.class, () -> productService.stockOut("IMMUT-STK", -3));
+
+        // 3. Stock out exceeding quantity
+        assertThrows(ValidationException.class, () -> productService.stockOut("IMMUT-STK", 15));
+
+        // Verify quantity remains unchanged at 10
+        Product p = productService.findProductBySku("IMMUT-STK").orElseThrow();
+        assertEquals(10, p.getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should ensure product with transaction history is not deleted when delete fails")
+    void shouldEnsureProductWithTransactionHistoryIsNotDeleted() {
+        productService.createProduct("DEL-PROT", "Protected Item", new BigDecimal("100.00"), 5, 1);
+        productService.stockIn("DEL-PROT", 3);
+
+        // Attempt deletion
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.deleteProductBySku("DEL-PROT"));
+        assertTrue(ex.getMessage().contains("has recorded inventory transaction history"));
+
+        // Verify product is still present
+        assertTrue(productService.findProductBySku("DEL-PROT").isPresent());
+    }
 }

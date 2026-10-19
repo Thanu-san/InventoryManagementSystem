@@ -1,5 +1,6 @@
 package com.stockflow.controller;
 
+import com.stockflow.exception.DatabaseException;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
@@ -19,6 +20,7 @@ import java.util.Scanner;
 /**
  * Controller responsible for the Product Management console interactions.
  * Receives user input, delegates to ProductService, and prints formatted output.
+ * Provides robust validation, failure recovery, and friendly user error messages.
  */
 public class ProductController {
 
@@ -53,6 +55,9 @@ public class ProductController {
             System.out.println("14. Back to Main Menu");
             System.out.print("Select an option: ");
 
+            if (!scanner.hasNextLine()) {
+                break;
+            }
             String choice = scanner.nextLine().trim();
             switch (choice) {
                 case "1" -> handleAddProduct();
@@ -77,112 +82,54 @@ public class ProductController {
     private void handleAddProduct() {
         System.out.println("\n[ Add New Product ]");
 
-        System.out.print("Enter SKU: ");
-        String sku = scanner.nextLine();
-
-        System.out.print("Enter Name: ");
-        String name = scanner.nextLine();
-
-        BigDecimal price;
-        try {
-            System.out.print("Enter Price: ");
-            String priceInput = scanner.nextLine().trim();
-            price = new BigDecimal(priceInput);
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Price must be a valid number (e.g. 19.99).");
+        Optional<String> skuOpt = promptNonBlankString("Enter SKU: ", "SKU");
+        if (skuOpt.isEmpty()) {
             return;
         }
 
-        int quantity;
-        try {
-            System.out.print("Enter Quantity: ");
-            quantity = Integer.parseInt(scanner.nextLine().trim());
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Quantity must be a valid whole number.");
+        Optional<String> nameOpt = promptNonBlankString("Enter Name: ", "Product name");
+        if (nameOpt.isEmpty()) {
             return;
         }
 
-        int minimumStock;
-        try {
-            System.out.print("Enter Minimum Stock: ");
-            minimumStock = Integer.parseInt(scanner.nextLine().trim());
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Minimum stock must be a valid whole number.");
+        Optional<BigDecimal> priceOpt = promptPrice("Enter Price: ");
+        if (priceOpt.isEmpty()) {
+            return;
+        }
+
+        Optional<Integer> qtyOpt = promptInteger("Enter Quantity: ", "Quantity", 0);
+        if (qtyOpt.isEmpty()) {
+            return;
+        }
+
+        Optional<Integer> minStockOpt = promptInteger("Enter Minimum Stock: ", "Minimum stock", 0);
+        if (minStockOpt.isEmpty()) {
             return;
         }
 
         try {
-            Product created = productService.createProduct(sku, name, price, quantity, minimumStock);
+            Product created = productService.createProduct(
+                    skuOpt.get(), nameOpt.get(), priceOpt.get(), qtyOpt.get(), minStockOpt.get());
             System.out.println("Success: Product created successfully! ID: " + created.getId());
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 
     private void handleListProducts() {
         System.out.println("\n[ Product List ]");
-        List<Product> products = productService.getAllProducts();
-
-        if (products.isEmpty()) {
-            System.out.println("No products found in inventory.");
-            return;
-        }
-
-        // Print header
-        System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
-                "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
-        System.out.println("-".repeat(84));
-
-        for (Product p : products) {
-            System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
-                    p.getId(),
-                    p.getSku(),
-                    p.getName(),
-                    p.getPrice(),
-                    p.getQuantity(),
-                    p.getMinimumStock());
-        }
-    }
-
-    private void handleFindProductBySku() {
-        System.out.println("\n[ Find Product by SKU ]");
-        System.out.print("Enter SKU: ");
-        String sku = scanner.nextLine();
-
         try {
-            Optional<Product> productOpt = productService.findProductBySku(sku);
-            if (productOpt.isPresent()) {
-                Product p = productOpt.get();
-                System.out.println("\nProduct Found:");
-                System.out.println("-------------------------");
-                System.out.println("ID: " + p.getId());
-                System.out.println("SKU: " + p.getSku());
-                System.out.println("Name: " + p.getName());
-                System.out.printf("Price: $%.2f%n", p.getPrice());
-                System.out.println("Quantity: " + p.getQuantity());
-                System.out.println("Minimum Stock: " + p.getMinimumStock());
-                System.out.println("-------------------------");
-            } else {
-                System.out.println("Product not found with SKU: " + sku.trim());
-            }
-        } catch (ValidationException e) {
-            System.out.println("Validation Error: " + e.getMessage());
-        }
-    }
+            List<Product> products = productService.getAllProducts();
 
-    private void handleSearchProductsByName() {
-        System.out.println("\n[ Search Products by Name ]");
-        System.out.print("Enter product name to search: ");
-        String nameQuery = scanner.nextLine();
-
-        try {
-            List<Product> products = productService.searchProductsByName(nameQuery);
             if (products.isEmpty()) {
-                System.out.println("No products found matching: " + nameQuery.trim());
+                System.out.println("No products found in inventory.");
                 return;
             }
 
-            // Print header
             System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
                     "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
             System.out.println("-".repeat(84));
@@ -198,6 +145,78 @@ public class ProductController {
             }
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleFindProductBySku() {
+        System.out.println("\n[ Find Product by SKU ]");
+        Optional<String> skuOpt = promptNonBlankString("Enter SKU: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
+
+        String sku = skuOpt.get();
+        try {
+            Optional<Product> productOpt = productService.findProductBySku(sku);
+            if (productOpt.isPresent()) {
+                Product p = productOpt.get();
+                System.out.println("\nProduct Found:");
+                System.out.println("-------------------------");
+                System.out.println("ID: " + p.getId());
+                System.out.println("SKU: " + p.getSku());
+                System.out.println("Name: " + p.getName());
+                System.out.printf("Price: $%.2f%n", p.getPrice());
+                System.out.println("Quantity: " + p.getQuantity());
+                System.out.println("Minimum Stock: " + p.getMinimumStock());
+                System.out.println("-------------------------");
+            } else {
+                System.out.println("Product not found with SKU: " + sku);
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleSearchProductsByName() {
+        System.out.println("\n[ Search Products by Name ]");
+        Optional<String> queryOpt = promptNonBlankString("Enter product name to search: ", "Search term");
+        if (queryOpt.isEmpty()) {
+            return;
+        }
+
+        String nameQuery = queryOpt.get();
+        try {
+            List<Product> products = productService.searchProductsByName(nameQuery);
+            if (products.isEmpty()) {
+                System.out.println("No products found matching: " + nameQuery);
+                return;
+            }
+
+            System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
+                    "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
+            System.out.println("-".repeat(84));
+
+            for (Product p : products) {
+                System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
+                        p.getId(),
+                        p.getSku(),
+                        p.getName(),
+                        p.getPrice(),
+                        p.getQuantity(),
+                        p.getMinimumStock());
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }
@@ -205,19 +224,28 @@ public class ProductController {
 
     private void handleUpdateProduct() {
         System.out.println("\n[ Update Product ]");
-        System.out.print("Enter SKU of product to update: ");
-        String sku = scanner.nextLine();
+        Optional<String> skuOpt = promptNonBlankString("Enter SKU of product to update: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
 
+        String sku = skuOpt.get();
         Optional<Product> productOpt;
         try {
             productOpt = productService.findProductBySku(sku);
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
             return;
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+            return;
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+            return;
         }
 
         if (productOpt.isEmpty()) {
-            System.out.println("Product not found with SKU: " + (sku != null ? sku.trim() : ""));
+            System.out.println("Product not found with SKU: " + sku);
             return;
         }
 
@@ -232,51 +260,57 @@ public class ProductController {
         System.out.println("Minimum Stock: " + current.getMinimumStock());
         System.out.println("-------------------------");
 
-        System.out.print("Enter new name: ");
-        String newName = scanner.nextLine();
-
-        BigDecimal newPrice;
-        try {
-            System.out.print("Enter new price: ");
-            String priceInput = scanner.nextLine().trim();
-            newPrice = new BigDecimal(priceInput);
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Price must be a valid number (e.g. 19.99).");
+        Optional<String> newNameOpt = promptNonBlankString("Enter new name: ", "Product name");
+        if (newNameOpt.isEmpty()) {
             return;
         }
 
-        int newMinimumStock;
-        try {
-            System.out.print("Enter new minimum stock: ");
-            newMinimumStock = Integer.parseInt(scanner.nextLine().trim());
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Minimum stock must be a valid whole number.");
+        Optional<BigDecimal> newPriceOpt = promptPrice("Enter new price: ");
+        if (newPriceOpt.isEmpty()) {
+            return;
+        }
+
+        Optional<Integer> newMinStockOpt = promptInteger("Enter new minimum stock: ", "Minimum stock", 0);
+        if (newMinStockOpt.isEmpty()) {
             return;
         }
 
         try {
-            productService.updateProduct(sku, newName, newPrice, newMinimumStock);
+            productService.updateProduct(sku, newNameOpt.get(), newPriceOpt.get(), newMinStockOpt.get());
             System.out.println("Product updated successfully.");
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 
     private void handleDeleteProduct() {
         System.out.println("\n[ Delete Product ]");
-        System.out.print("Enter SKU of product to delete: ");
-        String sku = scanner.nextLine();
+        Optional<String> skuOpt = promptNonBlankString("Enter SKU of product to delete: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
 
+        String sku = skuOpt.get();
         Optional<Product> productOpt;
         try {
             productOpt = productService.findProductBySku(sku);
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
             return;
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+            return;
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+            return;
         }
 
         if (productOpt.isEmpty()) {
-            System.out.println("Product not found with SKU: " + (sku != null ? sku.trim() : ""));
+            System.out.println("Product not found with SKU: " + sku);
             return;
         }
 
@@ -303,6 +337,8 @@ public class ProductController {
                     System.out.println("Product deleted successfully.");
                 } catch (ValidationException e) {
                     System.out.println("Validation Error: " + e.getMessage());
+                } catch (DatabaseException e) {
+                    System.out.println("Database Error: " + e.getMessage());
                 } catch (Exception e) {
                     System.out.println("Error: " + e.getMessage());
                 }
@@ -318,23 +354,23 @@ public class ProductController {
 
     private void handleStockIn() {
         System.out.println("\n[ Stock In ]");
-        System.out.print("Enter Product SKU: ");
-        String sku = scanner.nextLine();
+        Optional<String> skuOpt = promptNonBlankString("Enter Product SKU: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
 
-        int quantity;
-        try {
-            System.out.print("Enter Quantity to Add: ");
-            quantity = Integer.parseInt(scanner.nextLine().trim());
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Quantity must be a valid whole number.");
+        Optional<Integer> qtyOpt = promptInteger("Enter Quantity to Add: ", "Stock In quantity", 1);
+        if (qtyOpt.isEmpty()) {
             return;
         }
 
         try {
-            InventoryTransaction tx = productService.stockIn(sku, quantity);
+            InventoryTransaction tx = productService.stockIn(skuOpt.get(), qtyOpt.get());
             System.out.println("Success: Stock In recorded successfully! Transaction ID: " + tx.getId());
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }
@@ -342,23 +378,23 @@ public class ProductController {
 
     private void handleStockOut() {
         System.out.println("\n[ Stock Out ]");
-        System.out.print("Enter Product SKU: ");
-        String sku = scanner.nextLine();
+        Optional<String> skuOpt = promptNonBlankString("Enter Product SKU: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
 
-        int quantity;
-        try {
-            System.out.print("Enter Quantity to Remove: ");
-            quantity = Integer.parseInt(scanner.nextLine().trim());
-        } catch (NumberFormatException e) {
-            System.out.println("Error: Quantity must be a valid whole number.");
+        Optional<Integer> qtyOpt = promptInteger("Enter Quantity to Remove: ", "Stock Out quantity", 1);
+        if (qtyOpt.isEmpty()) {
             return;
         }
 
         try {
-            InventoryTransaction tx = productService.stockOut(sku, quantity);
+            InventoryTransaction tx = productService.stockOut(skuOpt.get(), qtyOpt.get());
             System.out.println("Success: Stock Out recorded successfully! Transaction ID: " + tx.getId());
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }
@@ -366,13 +402,16 @@ public class ProductController {
 
     private void handleViewHistory() {
         System.out.println("\n[ Transaction History ]");
-        System.out.print("Enter Product SKU: ");
-        String sku = scanner.nextLine();
+        Optional<String> skuOpt = promptNonBlankString("Enter Product SKU: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
 
+        String sku = skuOpt.get();
         try {
             List<InventoryTransaction> transactions = productService.getTransactionHistory(sku);
             if (transactions.isEmpty()) {
-                System.out.println("No transactions found for product SKU: " + sku.trim());
+                System.out.println("No transactions found for product SKU: " + sku);
                 return;
             }
 
@@ -390,6 +429,8 @@ public class ProductController {
             }
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }
@@ -397,26 +438,33 @@ public class ProductController {
 
     private void handleLowStockReport() {
         System.out.println("\n[ Low-Stock Report ]");
-        List<Product> lowStockProducts = productService.getLowStockProducts();
+        try {
+            List<Product> lowStockProducts = productService.getLowStockProducts();
 
-        if (lowStockProducts.isEmpty()) {
-            System.out.println("No low-stock products found.");
-            return;
-        }
+            if (lowStockProducts.isEmpty()) {
+                System.out.println("No low-stock products found.");
+                return;
+            }
 
-        // Print header
-        System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
-                "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
-        System.out.println("-".repeat(84));
+            System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
+                    "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
+            System.out.println("-".repeat(84));
 
-        for (Product p : lowStockProducts) {
-            System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
-                    p.getId(),
-                    p.getSku(),
-                    p.getName(),
-                    p.getPrice(),
-                    p.getQuantity(),
-                    p.getMinimumStock());
+            for (Product p : lowStockProducts) {
+                System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
+                        p.getId(),
+                        p.getSku(),
+                        p.getName(),
+                        p.getPrice(),
+                        p.getQuantity(),
+                        p.getMinimumStock());
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 
@@ -428,6 +476,10 @@ public class ProductController {
             System.out.println("Total Units in Stock:  " + summary.getTotalUnits());
             System.out.println("Low-Stock Products:    " + summary.getLowStockProducts());
             System.out.println("Out-of-Stock Products: " + summary.getOutOfStockProducts());
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }
@@ -459,6 +511,10 @@ public class ProductController {
             System.out.printf("%-12s | %-25s | %-12s | %-10d | $%-14.2f%n",
                     "", "Total", "", report.getTotalQuantity(), report.getTotalValue());
             System.out.println("-".repeat(86));
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
         }
@@ -472,37 +528,58 @@ public class ProductController {
         System.out.println("2. Name");
         System.out.println("3. Price");
         System.out.println("4. Quantity");
-        System.out.print("Enter choice [1-4, default 1]: ");
-        String fieldInput = scanner.nextLine().trim();
-        SortField sortField = switch (fieldInput) {
-            case "2" -> SortField.NAME;
-            case "3" -> SortField.PRICE;
-            case "4" -> SortField.QUANTITY;
-            default -> SortField.SKU;
-        };
+
+        SortField sortField = SortField.SKU;
+        while (true) {
+            Optional<String> fieldOpt = readLine("Enter choice [1-4, default 1]: ");
+            if (fieldOpt.isEmpty()) {
+                return;
+            }
+            String fieldInput = fieldOpt.get().trim();
+            if (fieldInput.isEmpty() || "1".equals(fieldInput)) {
+                sortField = SortField.SKU;
+                break;
+            } else if ("2".equals(fieldInput)) {
+                sortField = SortField.NAME;
+                break;
+            } else if ("3".equals(fieldInput)) {
+                sortField = SortField.PRICE;
+                break;
+            } else if ("4".equals(fieldInput)) {
+                sortField = SortField.QUANTITY;
+                break;
+            } else {
+                System.out.println("Invalid choice. Please enter 1, 2, 3, 4, or press Enter for default.");
+            }
+        }
 
         System.out.println("Select sort direction:");
         System.out.println("1. Ascending (default)");
         System.out.println("2. Descending");
-        System.out.print("Enter choice [1-2, default 1]: ");
-        String dirInput = scanner.nextLine().trim();
-        SortDirection sortDirection = "2".equals(dirInput) ? SortDirection.DESC : SortDirection.ASC;
 
-        System.out.print("Enter page size [default 5]: ");
-        String sizeInput = scanner.nextLine().trim();
-        int pageSize = 5;
-        if (!sizeInput.isEmpty()) {
-            try {
-                int parsed = Integer.parseInt(sizeInput);
-                if (parsed > 0) {
-                    pageSize = parsed;
-                } else {
-                    System.out.println("Invalid page size. Using default: 5.");
-                }
-            } catch (NumberFormatException e) {
-                System.out.println("Invalid number. Using default page size: 5.");
+        SortDirection sortDirection = SortDirection.ASC;
+        while (true) {
+            Optional<String> dirOpt = readLine("Enter choice [1-2, default 1]: ");
+            if (dirOpt.isEmpty()) {
+                return;
+            }
+            String dirInput = dirOpt.get().trim();
+            if (dirInput.isEmpty() || "1".equals(dirInput)) {
+                sortDirection = SortDirection.ASC;
+                break;
+            } else if ("2".equals(dirInput)) {
+                sortDirection = SortDirection.DESC;
+                break;
+            } else {
+                System.out.println("Invalid choice. Please enter 1, 2, or press Enter for default.");
             }
         }
+
+        Optional<Integer> pageSizeOpt = promptOptionalInteger("Enter page size [default 5]: ", "Page size", 5, 1);
+        if (pageSizeOpt.isEmpty()) {
+            return;
+        }
+        int pageSize = pageSizeOpt.get();
 
         int currentPage = 1;
         boolean browsing = true;
@@ -535,6 +612,9 @@ public class ProductController {
                         result.getPageNumber(), result.getTotalPages(), result.getTotalElements());
 
                 System.out.print("Navigation: [N]ext | [P]revious | [J]ump to page | [B]ack to Menu: ");
+                if (!scanner.hasNextLine()) {
+                    break;
+                }
                 String action = scanner.nextLine().trim().toUpperCase();
 
                 switch (action) {
@@ -553,17 +633,24 @@ public class ProductController {
                         }
                     }
                     case "J" -> {
-                        System.out.printf("Enter page number (1-%d): ", result.getTotalPages());
-                        String pageInput = scanner.nextLine().trim();
-                        try {
-                            int targetPage = Integer.parseInt(pageInput);
-                            if (targetPage >= 1 && targetPage <= result.getTotalPages()) {
-                                currentPage = targetPage;
-                            } else {
-                                System.out.println("Invalid page number. Must be between 1 and " + result.getTotalPages());
+                        int totalPages = result.getTotalPages();
+                        while (true) {
+                            Optional<String> pageInputOpt = readLine("Enter page number (1-" + totalPages + "): ");
+                            if (pageInputOpt.isEmpty()) {
+                                break;
                             }
-                        } catch (NumberFormatException e) {
-                            System.out.println("Invalid number format.");
+                            String pageInput = pageInputOpt.get().trim();
+                            try {
+                                int targetPage = Integer.parseInt(pageInput);
+                                if (targetPage >= 1 && targetPage <= totalPages) {
+                                    currentPage = targetPage;
+                                    break;
+                                } else {
+                                    System.out.println("Error: Page number must be between 1 and " + totalPages + ". Please try again.");
+                                }
+                            } catch (NumberFormatException e) {
+                                System.out.println("Error: Page number must be a valid whole number. Please try again.");
+                            }
                         }
                     }
                     case "B" -> browsing = false;
@@ -572,9 +659,115 @@ public class ProductController {
             } catch (ValidationException e) {
                 System.out.println("Validation Error: " + e.getMessage());
                 browsing = false;
+            } catch (DatabaseException e) {
+                System.out.println("Database Error: " + e.getMessage());
+                browsing = false;
             } catch (Exception e) {
                 System.out.println("Error: " + e.getMessage());
                 browsing = false;
+            }
+        }
+    }
+
+    // --- Reusable Console Input Helpers ---
+
+    private Optional<String> readLine(String prompt) {
+        System.out.print(prompt);
+        if (!scanner.hasNextLine()) {
+            return Optional.empty();
+        }
+        return Optional.of(scanner.nextLine());
+    }
+
+    private Optional<String> promptNonBlankString(String prompt, String fieldName) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            String input = lineOpt.get().trim();
+            if (!input.isEmpty()) {
+                return Optional.of(input);
+            }
+            System.out.println("Error: " + fieldName + " cannot be blank. Please try again.");
+        }
+    }
+
+    private Optional<BigDecimal> promptPrice(String prompt) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            String input = lineOpt.get().trim();
+            if (input.isEmpty()) {
+                System.out.println("Error: Price cannot be blank. Please try again.");
+                continue;
+            }
+            try {
+                BigDecimal price = new BigDecimal(input);
+                if (price.compareTo(BigDecimal.ZERO) < 0) {
+                    System.out.println("Error: Price must be greater than or equal to 0. Please try again.");
+                    continue;
+                }
+                return Optional.of(price);
+            } catch (NumberFormatException e) {
+                System.out.println("Error: Price must be a valid number (e.g. 19.99). Please try again.");
+            }
+        }
+    }
+
+    private Optional<Integer> promptInteger(String prompt, String fieldName, int minAllowed) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            String input = lineOpt.get().trim();
+            if (input.isEmpty()) {
+                System.out.println("Error: " + fieldName + " cannot be blank. Please try again.");
+                continue;
+            }
+            try {
+                int value = Integer.parseInt(input);
+                if (value < minAllowed) {
+                    if (minAllowed == 1) {
+                        System.out.println("Error: " + fieldName + " must be greater than zero. Please try again.");
+                    } else {
+                        System.out.println("Error: " + fieldName + " must be greater than or equal to " + minAllowed + ". Please try again.");
+                    }
+                    continue;
+                }
+                return Optional.of(value);
+            } catch (NumberFormatException e) {
+                System.out.println("Error: " + fieldName + " must be a valid whole number. Please try again.");
+            }
+        }
+    }
+
+    private Optional<Integer> promptOptionalInteger(String prompt, String fieldName, int defaultValue, int minAllowed) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            String input = lineOpt.get().trim();
+            if (input.isEmpty()) {
+                return Optional.of(defaultValue);
+            }
+            try {
+                int value = Integer.parseInt(input);
+                if (value < minAllowed) {
+                    if (minAllowed == 1) {
+                        System.out.println("Error: " + fieldName + " must be greater than zero. Please try again.");
+                    } else {
+                        System.out.println("Error: " + fieldName + " must be greater than or equal to " + minAllowed + ". Please try again.");
+                    }
+                    continue;
+                }
+                return Optional.of(value);
+            } catch (NumberFormatException e) {
+                System.out.println("Error: " + fieldName + " must be a valid whole number. Please try again.");
             }
         }
     }

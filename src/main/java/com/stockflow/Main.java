@@ -40,7 +40,13 @@ public class Main {
             }
             String choice = scanner.nextLine().trim();
             switch (choice) {
-                case "1" -> productController.runMenu();
+                case "1" -> {
+                    try {
+                        productController.runMenu();
+                    } catch (Exception e) {
+                        System.out.println("Unexpected error: " + e.getMessage());
+                    }
+                }
                 case "2" -> {
                     System.out.println("Thank you for using StockFlow. Goodbye!");
                     running = false;

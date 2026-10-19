@@ -1,6 +1,7 @@
 package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
+import com.stockflow.exception.DatabaseException;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.TransactionType;
@@ -57,6 +58,7 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
         boolean originalAutoCommit = true;
         boolean committed = false;
         boolean rollbackSucceeded = false;
+        Exception inFlightException = null;
 
         try {
             connection = DatabaseConnection.getConnection();
@@ -139,12 +141,15 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
 
         } catch (SQLException e) {
             rollbackSucceeded = rollbackSafely(connection, e);
-            throw new RuntimeException("Database error during stock movement: " + e.getMessage(), e);
+            DatabaseException dbEx = new DatabaseException("Database error during stock movement: " + e.getMessage(), e);
+            inFlightException = dbEx;
+            throw dbEx;
         } catch (RuntimeException e) {
             rollbackSucceeded = rollbackSafely(connection, e);
+            inFlightException = e;
             throw e;
         } finally {
-            closeSafely(connection, originalAutoCommit, committed, rollbackSucceeded);
+            closeSafely(connection, originalAutoCommit, committed, rollbackSucceeded, inFlightException);
         }
     }
 
@@ -167,7 +172,7 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
                 return transactions;
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while retrieving transactions for product: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while retrieving transactions for product: " + e.getMessage(), e);
         }
     }
 
@@ -183,7 +188,7 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
             }
             return transactions;
         } catch (SQLException e) {
-            throw new RuntimeException("Database error while retrieving all transactions: " + e.getMessage(), e);
+            throw new DatabaseException("Database error while retrieving all transactions: " + e.getMessage(), e);
         }
     }
 
@@ -211,7 +216,8 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
         return false;
     }
 
-    private void closeSafely(Connection connection, boolean originalAutoCommit, boolean committed, boolean rollbackSucceeded) {
+    private void closeSafely(Connection connection, boolean originalAutoCommit, boolean committed,
+                             boolean rollbackSucceeded, Exception inFlightException) {
         if (connection != null) {
             try {
                 // Restore auto-commit only if the transaction cleanly committed,
@@ -223,13 +229,21 @@ public class JdbcInventoryTransactionRepository implements InventoryTransactionR
                         if (!connection.isClosed()) {
                             connection.setAutoCommit(originalAutoCommit);
                         }
-                    } catch (SQLException ignored) {
+                    } catch (SQLException e) {
+                        if (inFlightException != null) {
+                            inFlightException.addSuppressed(e);
+                        }
                     }
                 }
             } finally {
                 try {
-                    connection.close();
-                } catch (SQLException ignored) {
+                    if (!connection.isClosed()) {
+                        connection.close();
+                    }
+                } catch (SQLException e) {
+                    if (inFlightException != null) {
+                        inFlightException.addSuppressed(e);
+                    }
                 }
             }
         }
