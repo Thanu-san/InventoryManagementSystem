@@ -4,7 +4,10 @@ import com.stockflow.database.DatabaseConnection;
 import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryValuationItem;
 import com.stockflow.model.InventoryValuationReport;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 import com.stockflow.service.ProductService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -590,5 +593,259 @@ class JdbcProductRepositoryTest {
         assertTrue(repository.searchByName(null).isEmpty());
         assertTrue(repository.searchByName("").isEmpty());
         assertTrue(repository.searchByName("    ").isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should accurately count products in PostgreSQL")
+    void shouldAccuratelyCountProductsInPostgreSql() {
+        long initialCount = repository.count();
+        assertTrue(initialCount >= 0, "Initial count should be non-negative");
+
+        long ts = System.currentTimeMillis();
+        String sku1 = "COUNT-A-" + ts;
+        String sku2 = "COUNT-B-" + ts;
+        extraTestSkus.add(sku1);
+        extraTestSkus.add(sku2);
+
+        repository.save(new Product(sku1, "Count Product 1", new BigDecimal("10.00"), 5, 1));
+        assertEquals(initialCount + 1, repository.count());
+
+        repository.save(new Product(sku2, "Count Product 2", new BigDecimal("20.00"), 10, 2));
+        assertEquals(initialCount + 2, repository.count());
+    }
+
+    @Test
+    @DisplayName("Should sort products by SKU ascending and descending in PostgreSQL")
+    void shouldSortProductsBySkuAscAndDescInPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String sku1 = "SORT-SKU-A-" + ts;
+        String sku2 = "SORT-SKU-B-" + ts;
+        String sku3 = "SORT-SKU-C-" + ts;
+        extraTestSkus.add(sku1);
+        extraTestSkus.add(sku2);
+        extraTestSkus.add(sku3);
+
+        repository.save(new Product(sku1, "Product A", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product(sku2, "Product B", new BigDecimal("20.00"), 10, 2));
+        repository.save(new Product(sku3, "Product C", new BigDecimal("30.00"), 15, 3));
+
+        int total = (int) repository.count();
+
+        // SKU ASC
+        PagedResult<Product> ascResult = repository.findAll(1, total, SortField.SKU, SortDirection.ASC);
+        List<Product> ascFiltered = ascResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, ascFiltered.size());
+        assertEquals(sku1, ascFiltered.get(0).getSku());
+        assertEquals(sku2, ascFiltered.get(1).getSku());
+        assertEquals(sku3, ascFiltered.get(2).getSku());
+
+        // SKU DESC
+        PagedResult<Product> descResult = repository.findAll(1, total, SortField.SKU, SortDirection.DESC);
+        List<Product> descFiltered = descResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, descFiltered.size());
+        assertEquals(sku3, descFiltered.get(0).getSku());
+        assertEquals(sku2, descFiltered.get(1).getSku());
+        assertEquals(sku1, descFiltered.get(2).getSku());
+    }
+
+    @Test
+    @DisplayName("Should sort products by Name with SKU tie-breaker in PostgreSQL")
+    void shouldSortProductsByNameWithSkuTieBreakerInPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String skuTie1 = "SORT-NAME-TIE-A-" + ts;
+        String skuTie2 = "SORT-NAME-TIE-B-" + ts;
+        String skuOther = "SORT-NAME-OTHER-" + ts;
+        extraTestSkus.add(skuTie1);
+        extraTestSkus.add(skuTie2);
+        extraTestSkus.add(skuOther);
+
+        // Same name for tie-breaker check
+        repository.save(new Product(skuTie2, "Alpha Product", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product(skuTie1, "Alpha Product", new BigDecimal("20.00"), 10, 2));
+        repository.save(new Product(skuOther, "Beta Product", new BigDecimal("30.00"), 15, 3));
+
+        int total = (int) repository.count();
+
+        // NAME ASC: Alpha Product (TIE-A then TIE-B), then Beta Product
+        PagedResult<Product> ascResult = repository.findAll(1, total, SortField.NAME, SortDirection.ASC);
+        List<Product> ascFiltered = ascResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, ascFiltered.size());
+        assertEquals(skuTie1, ascFiltered.get(0).getSku());
+        assertEquals(skuTie2, ascFiltered.get(1).getSku());
+        assertEquals(skuOther, ascFiltered.get(2).getSku());
+
+        // NAME DESC: Beta Product, then Alpha Product (TIE-A then TIE-B tie-breaker)
+        PagedResult<Product> descResult = repository.findAll(1, total, SortField.NAME, SortDirection.DESC);
+        List<Product> descFiltered = descResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, descFiltered.size());
+        assertEquals(skuOther, descFiltered.get(0).getSku());
+        assertEquals(skuTie1, descFiltered.get(1).getSku());
+        assertEquals(skuTie2, descFiltered.get(2).getSku());
+    }
+
+    @Test
+    @DisplayName("Should sort products by Price with SKU tie-breaker in PostgreSQL")
+    void shouldSortProductsByPriceWithSkuTieBreakerInPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String skuLow = "SORT-PRICE-LOW-" + ts;
+        String skuTie1 = "SORT-PRICE-TIE-A-" + ts;
+        String skuTie2 = "SORT-PRICE-TIE-B-" + ts;
+        extraTestSkus.add(skuLow);
+        extraTestSkus.add(skuTie1);
+        extraTestSkus.add(skuTie2);
+
+        repository.save(new Product(skuLow, "Low Price", new BigDecimal("15.00"), 5, 1));
+        repository.save(new Product(skuTie2, "Tie Price B", new BigDecimal("55.00"), 10, 2));
+        repository.save(new Product(skuTie1, "Tie Price A", new BigDecimal("55.00"), 15, 3));
+
+        int total = (int) repository.count();
+
+        // PRICE ASC
+        PagedResult<Product> ascResult = repository.findAll(1, total, SortField.PRICE, SortDirection.ASC);
+        List<Product> ascFiltered = ascResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, ascFiltered.size());
+        assertEquals(skuLow, ascFiltered.get(0).getSku());
+        assertEquals(skuTie1, ascFiltered.get(1).getSku());
+        assertEquals(skuTie2, ascFiltered.get(2).getSku());
+
+        // PRICE DESC
+        PagedResult<Product> descResult = repository.findAll(1, total, SortField.PRICE, SortDirection.DESC);
+        List<Product> descFiltered = descResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, descFiltered.size());
+        assertEquals(skuTie1, descFiltered.get(0).getSku());
+        assertEquals(skuTie2, descFiltered.get(1).getSku());
+        assertEquals(skuLow, descFiltered.get(2).getSku());
+    }
+
+    @Test
+    @DisplayName("Should sort products by Quantity with SKU tie-breaker in PostgreSQL")
+    void shouldSortProductsByQuantityWithSkuTieBreakerInPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String skuLow = "SORT-QTY-LOW-" + ts;
+        String skuTie1 = "SORT-QTY-TIE-A-" + ts;
+        String skuTie2 = "SORT-QTY-TIE-B-" + ts;
+        extraTestSkus.add(skuLow);
+        extraTestSkus.add(skuTie1);
+        extraTestSkus.add(skuTie2);
+
+        repository.save(new Product(skuLow, "Low Qty", new BigDecimal("15.00"), 2, 1));
+        repository.save(new Product(skuTie2, "Tie Qty B", new BigDecimal("25.00"), 20, 2));
+        repository.save(new Product(skuTie1, "Tie Qty A", new BigDecimal("35.00"), 20, 3));
+
+        int total = (int) repository.count();
+
+        // QUANTITY ASC
+        PagedResult<Product> ascResult = repository.findAll(1, total, SortField.QUANTITY, SortDirection.ASC);
+        List<Product> ascFiltered = ascResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, ascFiltered.size());
+        assertEquals(skuLow, ascFiltered.get(0).getSku());
+        assertEquals(skuTie1, ascFiltered.get(1).getSku());
+        assertEquals(skuTie2, ascFiltered.get(2).getSku());
+
+        // QUANTITY DESC
+        PagedResult<Product> descResult = repository.findAll(1, total, SortField.QUANTITY, SortDirection.DESC);
+        List<Product> descFiltered = descResult.getContent().stream()
+                .filter(p -> extraTestSkus.contains(p.getSku()))
+                .toList();
+        assertEquals(3, descFiltered.size());
+        assertEquals(skuTie1, descFiltered.get(0).getSku());
+        assertEquals(skuTie2, descFiltered.get(1).getSku());
+        assertEquals(skuLow, descFiltered.get(2).getSku());
+    }
+
+    @Test
+    @DisplayName("Should paginate products correctly in PostgreSQL")
+    void shouldPaginateProductsCorrectlyInPostgreSql() {
+        long ts = System.currentTimeMillis();
+        String sku1 = "PAGE-A-" + ts;
+        String sku2 = "PAGE-B-" + ts;
+        String sku3 = "PAGE-C-" + ts;
+        extraTestSkus.add(sku1);
+        extraTestSkus.add(sku2);
+        extraTestSkus.add(sku3);
+
+        repository.save(new Product(sku1, "Page 1 Item", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product(sku2, "Page 2 Item", new BigDecimal("20.00"), 10, 2));
+        repository.save(new Product(sku3, "Page 3 Item", new BigDecimal("30.00"), 15, 3));
+
+        PagedResult<Product> page1 = repository.findAll(1, 2, SortField.SKU, SortDirection.ASC);
+        PagedResult<Product> page2 = repository.findAll(2, 2, SortField.SKU, SortDirection.ASC);
+
+        assertEquals(1, page1.getPageNumber());
+        assertEquals(2, page1.getPageSize());
+        assertTrue(page1.getTotalElements() >= 3);
+        assertEquals(2, page1.getContent().size());
+        assertTrue(page1.isFirst());
+        assertTrue(page1.hasNext());
+
+        assertEquals(2, page2.getPageNumber());
+        assertEquals(2, page2.getPageSize());
+        assertFalse(page2.getContent().isEmpty());
+        assertTrue(page2.hasPrevious());
+
+        // Products on page 1 and page 2 must not overlap
+        for (Product p1 : page1.getContent()) {
+            assertFalse(page2.getContent().stream().anyMatch(p2 -> p2.getSku().equals(p1.getSku())),
+                    "Page 1 and Page 2 should not share items");
+        }
+
+        // Sorting continuity across pages
+        Product lastOnP1 = page1.getContent().get(page1.getContent().size() - 1);
+        Product firstOnP2 = page2.getContent().get(0);
+        assertTrue(lastOnP1.getSku().compareTo(firstOnP2.getSku()) < 0,
+                "Last item on page 1 must precede first item on page 2");
+    }
+
+    @Test
+    @DisplayName("Should return empty page when offset exceeds total elements in PostgreSQL")
+    void shouldReturnEmptyPageWhenOffsetExceedsTotalElementsInPostgreSql() {
+        long total = repository.count();
+        int farPage = (int) (total / 5 + 10);
+
+        PagedResult<Product> result = repository.findAll(farPage, 5, SortField.SKU, SortDirection.ASC);
+        assertNotNull(result);
+        assertTrue(result.getContent().isEmpty());
+        assertEquals(farPage, result.getPageNumber());
+        assertEquals(5, result.getPageSize());
+        assertEquals(total, result.getTotalElements());
+    }
+
+    @Test
+    @DisplayName("Should handle large offset without integer overflow in PostgreSQL")
+    void shouldHandleLargeOffsetWithoutIntegerOverflowInPostgreSql() {
+        PagedResult<Product> result = repository.findAll(Integer.MAX_VALUE, 100, SortField.SKU, SortDirection.ASC);
+        assertNotNull(result);
+        assertTrue(result.getContent().isEmpty());
+        assertEquals(Integer.MAX_VALUE, result.getPageNumber());
+    }
+
+    @Test
+    @DisplayName("Should reject invalid pagination and sorting arguments in PostgreSQL")
+    void shouldRejectInvalidPaginationAndSortingArgumentsInPostgreSql() {
+        assertThrows(IllegalArgumentException.class, () ->
+                repository.findAll(0, 10, SortField.SKU, SortDirection.ASC));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                repository.findAll(1, 0, SortField.SKU, SortDirection.ASC));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                repository.findAll(1, 10, null, SortDirection.ASC));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                repository.findAll(1, 10, SortField.SKU, null));
     }
 }

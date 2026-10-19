@@ -5,7 +5,10 @@ import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.InventoryValuationItem;
 import com.stockflow.model.InventoryValuationReport;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 import com.stockflow.service.ProductService;
 
 import java.math.BigDecimal;
@@ -46,7 +49,8 @@ public class ProductController {
             System.out.println("10. Inventory Summary Report");
             System.out.println("11. Inventory Valuation Report");
             System.out.println("12. Search Products by Name");
-            System.out.println("13. Back to Main Menu");
+            System.out.println("13. Browse Products (Paged & Sorted)");
+            System.out.println("14. Back to Main Menu");
             System.out.print("Select an option: ");
 
             String choice = scanner.nextLine().trim();
@@ -63,7 +67,8 @@ public class ProductController {
                 case "10" -> handleInventorySummaryReport();
                 case "11" -> handleInventoryValuationReport();
                 case "12" -> handleSearchProductsByName();
-                case "13" -> back = true;
+                case "13" -> handleBrowseProducts();
+                case "14" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -456,6 +461,121 @@ public class ProductController {
             System.out.println("-".repeat(86));
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleBrowseProducts() {
+        System.out.println("\n[ Browse Products (Paged & Sorted) ]");
+
+        System.out.println("Select sort field:");
+        System.out.println("1. SKU (default)");
+        System.out.println("2. Name");
+        System.out.println("3. Price");
+        System.out.println("4. Quantity");
+        System.out.print("Enter choice [1-4, default 1]: ");
+        String fieldInput = scanner.nextLine().trim();
+        SortField sortField = switch (fieldInput) {
+            case "2" -> SortField.NAME;
+            case "3" -> SortField.PRICE;
+            case "4" -> SortField.QUANTITY;
+            default -> SortField.SKU;
+        };
+
+        System.out.println("Select sort direction:");
+        System.out.println("1. Ascending (default)");
+        System.out.println("2. Descending");
+        System.out.print("Enter choice [1-2, default 1]: ");
+        String dirInput = scanner.nextLine().trim();
+        SortDirection sortDirection = "2".equals(dirInput) ? SortDirection.DESC : SortDirection.ASC;
+
+        System.out.print("Enter page size [default 5]: ");
+        String sizeInput = scanner.nextLine().trim();
+        int pageSize = 5;
+        if (!sizeInput.isEmpty()) {
+            try {
+                int parsed = Integer.parseInt(sizeInput);
+                if (parsed > 0) {
+                    pageSize = parsed;
+                } else {
+                    System.out.println("Invalid page size. Using default: 5.");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid number. Using default page size: 5.");
+            }
+        }
+
+        int currentPage = 1;
+        boolean browsing = true;
+        while (browsing) {
+            try {
+                PagedResult<Product> result = productService.getProductsPaged(currentPage, pageSize, sortField, sortDirection);
+
+                if (result.getTotalElements() == 0) {
+                    System.out.println("No products found in inventory.");
+                    return;
+                }
+
+                System.out.printf("\n--- Products (Sorted by %s %s) ---%n", sortField, sortDirection);
+                System.out.printf("%-6s | %-12s | %-25s | %-10s | %-10s | %-10s%n",
+                        "ID", "SKU", "NAME", "PRICE", "QUANTITY", "MIN STOCK");
+                System.out.println("-".repeat(84));
+
+                for (Product p : result.getContent()) {
+                    System.out.printf("%-6d | %-12s | %-25s | $%-9.2f | %-10d | %-10d%n",
+                            p.getId(),
+                            p.getSku(),
+                            p.getName(),
+                            p.getPrice(),
+                            p.getQuantity(),
+                            p.getMinimumStock());
+                }
+
+                System.out.println("-".repeat(84));
+                System.out.printf("Page %d of %d (Total Products: %d)%n",
+                        result.getPageNumber(), result.getTotalPages(), result.getTotalElements());
+
+                System.out.print("Navigation: [N]ext | [P]revious | [J]ump to page | [B]ack to Menu: ");
+                String action = scanner.nextLine().trim().toUpperCase();
+
+                switch (action) {
+                    case "N" -> {
+                        if (result.hasNext()) {
+                            currentPage++;
+                        } else {
+                            System.out.println("You are already on the last page.");
+                        }
+                    }
+                    case "P" -> {
+                        if (result.hasPrevious()) {
+                            currentPage--;
+                        } else {
+                            System.out.println("You are already on the first page.");
+                        }
+                    }
+                    case "J" -> {
+                        System.out.printf("Enter page number (1-%d): ", result.getTotalPages());
+                        String pageInput = scanner.nextLine().trim();
+                        try {
+                            int targetPage = Integer.parseInt(pageInput);
+                            if (targetPage >= 1 && targetPage <= result.getTotalPages()) {
+                                currentPage = targetPage;
+                            } else {
+                                System.out.println("Invalid page number. Must be between 1 and " + result.getTotalPages());
+                            }
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid number format.");
+                        }
+                    }
+                    case "B" -> browsing = false;
+                    default -> System.out.println("Invalid option. Please enter N, P, J, or B.");
+                }
+            } catch (ValidationException e) {
+                System.out.println("Validation Error: " + e.getMessage());
+                browsing = false;
+            } catch (Exception e) {
+                System.out.println("Error: " + e.getMessage());
+                browsing = false;
+            }
         }
     }
 }

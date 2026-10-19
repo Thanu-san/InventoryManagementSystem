@@ -5,7 +5,10 @@ import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.InventoryValuationItem;
 import com.stockflow.model.InventoryValuationReport;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
@@ -78,6 +81,43 @@ public class ProductService {
      */
     public List<Product> getAllProducts() {
         return productRepository.findAll();
+    }
+
+    /**
+     * Retrieves a paginated and sorted slice of products.
+     * Validates that page is >= 1, size is >= 1, and sort parameters are not null.
+     *
+     * @param page 1-based page number
+     * @param size page size (items per page)
+     * @param sortField field to sort by
+     * @param sortDirection direction of sort (ASC or DESC)
+     * @return paged result containing matching products and pagination metadata
+     * @throws ValidationException if page < 1, size < 1, or sort parameters are null
+     */
+    public PagedResult<Product> getProductsPaged(int page, int size, SortField sortField, SortDirection sortDirection) {
+        if (page < 1) {
+            throw new ValidationException("Page number must be greater than or equal to 1.");
+        }
+        if (size < 1) {
+            throw new ValidationException("Page size must be greater than or equal to 1.");
+        }
+        if (sortField == null) {
+            throw new ValidationException("Sort field cannot be null.");
+        }
+        if (sortDirection == null) {
+            throw new ValidationException("Sort direction cannot be null.");
+        }
+
+        return productRepository.findAll(page, size, sortField, sortDirection);
+    }
+
+    /**
+     * Returns the total count of products in the repository.
+     *
+     * @return total product count
+     */
+    public long getProductCount() {
+        return productRepository.count();
     }
 
     /**

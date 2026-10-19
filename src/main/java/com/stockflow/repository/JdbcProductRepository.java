@@ -3,7 +3,10 @@ package com.stockflow.repository;
 import com.stockflow.database.DatabaseConnection;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.InventorySummary;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -216,6 +219,83 @@ public class JdbcProductRepository implements ProductRepository {
             }
         } catch (SQLException e) {
             throw new RuntimeException("Database error while searching products by name: " + e.getMessage(), e);
+        }
+    }
+
+    private static final String COUNT_SQL = "SELECT COUNT(*) FROM products";
+
+    @Override
+    public long count() {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(COUNT_SQL);
+             ResultSet resultSet = statement.executeQuery()) {
+
+            if (resultSet.next()) {
+                return resultSet.getLong(1);
+            }
+            return 0L;
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while counting products: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public PagedResult<Product> findAll(int page, int size, SortField sortField, SortDirection sortDirection) {
+        if (page < 1) {
+            throw new IllegalArgumentException("Page number must be greater than or equal to 1.");
+        }
+        if (size < 1) {
+            throw new IllegalArgumentException("Page size must be greater than or equal to 1.");
+        }
+        if (sortField == null) {
+            throw new IllegalArgumentException("Sort field cannot be null.");
+        }
+        if (sortDirection == null) {
+            throw new IllegalArgumentException("Sort direction cannot be null.");
+        }
+
+        long totalElements = count();
+        if (totalElements == 0) {
+            return new PagedResult<>(Collections.emptyList(), page, size, 0L);
+        }
+
+        long offset = (long) (page - 1) * size;
+        if (offset >= totalElements) {
+            return new PagedResult<>(Collections.emptyList(), page, size, totalElements);
+        }
+
+        String colName = switch (sortField) {
+            case SKU -> "sku";
+            case NAME -> "name";
+            case PRICE -> "price";
+            case QUANTITY -> "quantity";
+        };
+        String dirSql = sortDirection == SortDirection.DESC ? "DESC" : "ASC";
+
+        String sql;
+        if (sortField == SortField.SKU) {
+            sql = "SELECT id, sku, name, price, quantity, minimum_stock FROM products " +
+                  "ORDER BY sku " + dirSql + " LIMIT ? OFFSET ?";
+        } else {
+            sql = "SELECT id, sku, name, price, quantity, minimum_stock FROM products " +
+                  "ORDER BY " + colName + " " + dirSql + ", sku ASC LIMIT ? OFFSET ?";
+        }
+
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+
+            statement.setInt(1, size);
+            statement.setLong(2, offset);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<Product> products = new ArrayList<>(size);
+                while (resultSet.next()) {
+                    products.add(mapRowToProduct(resultSet));
+                }
+                return new PagedResult<>(products, page, size, totalElements);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error while retrieving paged products: " + e.getMessage(), e);
         }
     }
 

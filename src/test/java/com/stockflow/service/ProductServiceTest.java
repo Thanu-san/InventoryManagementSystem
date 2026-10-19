@@ -5,7 +5,10 @@ import com.stockflow.model.InventorySummary;
 import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.InventoryValuationItem;
 import com.stockflow.model.InventoryValuationReport;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
@@ -865,5 +868,89 @@ class ProductServiceTest {
         assertEquals(new BigDecimal("45.00"), p.getPrice());
         assertEquals(12, p.getQuantity());
         assertEquals(3, p.getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when page number is less than 1")
+    void shouldThrowValidationExceptionWhenPageIsLessThanOne() {
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.getProductsPaged(0, 5, SortField.SKU, SortDirection.ASC));
+        assertTrue(ex.getMessage().contains("Page number must be greater than or equal to 1"));
+
+        assertThrows(ValidationException.class, () ->
+                productService.getProductsPaged(-1, 5, SortField.SKU, SortDirection.ASC));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when page size is less than 1")
+    void shouldThrowValidationExceptionWhenPageSizeIsLessThanOne() {
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.getProductsPaged(1, 0, SortField.SKU, SortDirection.ASC));
+        assertTrue(ex.getMessage().contains("Page size must be greater than or equal to 1"));
+
+        assertThrows(ValidationException.class, () ->
+                productService.getProductsPaged(1, -5, SortField.SKU, SortDirection.ASC));
+    }
+
+    @Test
+    @DisplayName("Should throw ValidationException when sort field or direction is null")
+    void shouldThrowValidationExceptionWhenSortFieldOrDirectionIsNull() {
+        ValidationException exField = assertThrows(ValidationException.class, () ->
+                productService.getProductsPaged(1, 5, null, SortDirection.ASC));
+        assertTrue(exField.getMessage().contains("Sort field cannot be null"));
+
+        ValidationException exDir = assertThrows(ValidationException.class, () ->
+                productService.getProductsPaged(1, 5, SortField.SKU, null));
+        assertTrue(exDir.getMessage().contains("Sort direction cannot be null"));
+    }
+
+    @Test
+    @DisplayName("Should return paged and sorted products successfully via service")
+    void shouldReturnPagedAndSortedProductsSuccessfully() {
+        productService.createProduct("P-Z", "Product Z", new BigDecimal("30.00"), 10, 1);
+        productService.createProduct("P-A", "Product A", new BigDecimal("10.00"), 5, 1);
+        productService.createProduct("P-M", "Product M", new BigDecimal("20.00"), 15, 1);
+
+        PagedResult<Product> page1 = productService.getProductsPaged(1, 2, SortField.PRICE, SortDirection.ASC);
+        assertEquals(2, page1.getContent().size());
+        assertEquals("P-A", page1.getContent().get(0).getSku());
+        assertEquals("P-M", page1.getContent().get(1).getSku());
+        assertEquals(3L, page1.getTotalElements());
+        assertEquals(2, page1.getTotalPages());
+        assertTrue(page1.hasNext());
+        assertFalse(page1.hasPrevious());
+
+        PagedResult<Product> page2 = productService.getProductsPaged(2, 2, SortField.PRICE, SortDirection.ASC);
+        assertEquals(1, page2.getContent().size());
+        assertEquals("P-Z", page2.getContent().get(0).getSku());
+        assertFalse(page2.hasNext());
+        assertTrue(page2.hasPrevious());
+    }
+
+    @Test
+    @DisplayName("Should accurately report product count from service")
+    void shouldAccuratelyReportProductCountFromService() {
+        assertEquals(0L, productService.getProductCount());
+
+        productService.createProduct("COUNT-1", "Item 1", new BigDecimal("10.00"), 5, 1);
+        productService.createProduct("COUNT-2", "Item 2", new BigDecimal("20.00"), 10, 2);
+
+        assertEquals(2L, productService.getProductCount());
+    }
+
+    @Test
+    @DisplayName("Should ensure paged browsing does not mutate product data")
+    void shouldEnsurePagedBrowsingDoesNotMutateProductData() {
+        productService.createProduct("NO-MUT-1", "Safe Product", new BigDecimal("35.00"), 8, 2);
+
+        PagedResult<Product> result = productService.getProductsPaged(1, 10, SortField.NAME, SortDirection.ASC);
+        assertEquals(1, result.getContent().size());
+
+        Product stored = productService.findProductBySku("NO-MUT-1").orElseThrow();
+        assertEquals("NO-MUT-1", stored.getSku());
+        assertEquals("Safe Product", stored.getName());
+        assertEquals(new BigDecimal("35.00"), stored.getPrice());
+        assertEquals(8, stored.getQuantity());
+        assertEquals(2, stored.getMinimumStock());
     }
 }

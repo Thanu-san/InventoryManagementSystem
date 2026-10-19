@@ -1,7 +1,10 @@
 package com.stockflow.repository;
 
 import com.stockflow.model.InventorySummary;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 
 import java.util.List;
 import java.util.Optional;
@@ -65,4 +68,22 @@ public interface ProductRepository {
      * @return list of matching products ordered by SKU ascending
      */
     List<Product> searchByName(String nameQuery);
+
+    /**
+     * Returns a paginated and sorted slice of products.
+     *
+     * @param page 1-based page number
+     * @param size number of items per page
+     * @param sortField product field to sort by
+     * @param sortDirection direction of sort (ASC or DESC)
+     * @return paged result containing matching products and pagination metadata
+     */
+    PagedResult<Product> findAll(int page, int size, SortField sortField, SortDirection sortDirection);
+
+    /**
+     * Returns the total count of products in the repository.
+     *
+     * @return total product count
+     */
+    long count();
 }

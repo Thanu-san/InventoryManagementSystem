@@ -1,7 +1,10 @@
 package com.stockflow.repository;
 
 import com.stockflow.model.InventorySummary;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -301,5 +304,177 @@ class InMemoryProductRepositoryTest {
         assertEquals(original.getPrice(), found.getPrice());
         assertEquals(original.getQuantity(), found.getQuantity());
         assertEquals(original.getMinimumStock(), found.getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should accurately report product count")
+    void shouldReportAccurateProductCount() {
+        assertEquals(0L, repository.count());
+
+        repository.save(new Product("SKU-1", "Item 1", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product("SKU-2", "Item 2", new BigDecimal("20.00"), 10, 2));
+
+        assertEquals(2L, repository.count());
+    }
+
+    @Test
+    @DisplayName("Should sort products by SKU ascending and descending")
+    void shouldSortProductsBySkuAscAndDesc() {
+        repository.save(new Product("SKU-C", "Item C", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product("SKU-A", "Item A", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product("SKU-B", "Item B", new BigDecimal("10.00"), 5, 1));
+
+        PagedResult<Product> asc = repository.findAll(1, 10, SortField.SKU, SortDirection.ASC);
+        assertEquals(3, asc.getContent().size());
+        assertEquals("SKU-A", asc.getContent().get(0).getSku());
+        assertEquals("SKU-B", asc.getContent().get(1).getSku());
+        assertEquals("SKU-C", asc.getContent().get(2).getSku());
+
+        PagedResult<Product> desc = repository.findAll(1, 10, SortField.SKU, SortDirection.DESC);
+        assertEquals("SKU-C", desc.getContent().get(0).getSku());
+        assertEquals("SKU-B", desc.getContent().get(1).getSku());
+        assertEquals("SKU-A", desc.getContent().get(2).getSku());
+    }
+
+    @Test
+    @DisplayName("Should sort products by Name ascending and descending")
+    void shouldSortProductsByNameAscAndDesc() {
+        repository.save(new Product("SKU-1", "Zebra Gadget", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product("SKU-2", "Apple Fruit", new BigDecimal("10.00"), 5, 1));
+        repository.save(new Product("SKU-3", "Mango Juice", new BigDecimal("10.00"), 5, 1));
+
+        PagedResult<Product> asc = repository.findAll(1, 10, SortField.NAME, SortDirection.ASC);
+        assertEquals("Apple Fruit", asc.getContent().get(0).getName());
+        assertEquals("Mango Juice", asc.getContent().get(1).getName());
+        assertEquals("Zebra Gadget", asc.getContent().get(2).getName());
+
+        PagedResult<Product> desc = repository.findAll(1, 10, SortField.NAME, SortDirection.DESC);
+        assertEquals("Zebra Gadget", desc.getContent().get(0).getName());
+        assertEquals("Mango Juice", desc.getContent().get(1).getName());
+        assertEquals("Apple Fruit", desc.getContent().get(2).getName());
+    }
+
+    @Test
+    @DisplayName("Should sort products by Price ascending and descending")
+    void shouldSortProductsByPriceAscAndDesc() {
+        repository.save(new Product("SKU-1", "Cheap", new BigDecimal("9.99"), 5, 1));
+        repository.save(new Product("SKU-2", "Expensive", new BigDecimal("99.99"), 5, 1));
+        repository.save(new Product("SKU-3", "Mid", new BigDecimal("49.99"), 5, 1));
+
+        PagedResult<Product> asc = repository.findAll(1, 10, SortField.PRICE, SortDirection.ASC);
+        assertEquals(new BigDecimal("9.99"), asc.getContent().get(0).getPrice());
+        assertEquals(new BigDecimal("49.99"), asc.getContent().get(1).getPrice());
+        assertEquals(new BigDecimal("99.99"), asc.getContent().get(2).getPrice());
+
+        PagedResult<Product> desc = repository.findAll(1, 10, SortField.PRICE, SortDirection.DESC);
+        assertEquals(new BigDecimal("99.99"), desc.getContent().get(0).getPrice());
+        assertEquals(new BigDecimal("49.99"), desc.getContent().get(1).getPrice());
+        assertEquals(new BigDecimal("9.99"), desc.getContent().get(2).getPrice());
+    }
+
+    @Test
+    @DisplayName("Should sort products by Quantity ascending and descending")
+    void shouldSortProductsByQuantityAscAndDesc() {
+        repository.save(new Product("SKU-1", "Item Low", new BigDecimal("10.00"), 3, 1));
+        repository.save(new Product("SKU-2", "Item High", new BigDecimal("10.00"), 50, 1));
+        repository.save(new Product("SKU-3", "Item Mid", new BigDecimal("10.00"), 20, 1));
+
+        PagedResult<Product> asc = repository.findAll(1, 10, SortField.QUANTITY, SortDirection.ASC);
+        assertEquals(3, asc.getContent().get(0).getQuantity());
+        assertEquals(20, asc.getContent().get(1).getQuantity());
+        assertEquals(50, asc.getContent().get(2).getQuantity());
+
+        PagedResult<Product> desc = repository.findAll(1, 10, SortField.QUANTITY, SortDirection.DESC);
+        assertEquals(50, desc.getContent().get(0).getQuantity());
+        assertEquals(20, desc.getContent().get(1).getQuantity());
+        assertEquals(3, desc.getContent().get(2).getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should break ties stably using SKU ascending for equal sort values")
+    void shouldBreakTiesStablyUsingSkuAscending() {
+        // Equal prices, different SKUs
+        repository.save(new Product("SKU-Y", "Same Price Item 2", new BigDecimal("25.00"), 10, 1));
+        repository.save(new Product("SKU-X", "Same Price Item 1", new BigDecimal("25.00"), 10, 1));
+
+        // When sorting by PRICE ASC: both have 25.00, tie breaker SKU-X < SKU-Y
+        PagedResult<Product> asc = repository.findAll(1, 10, SortField.PRICE, SortDirection.ASC);
+        assertEquals("SKU-X", asc.getContent().get(0).getSku());
+        assertEquals("SKU-Y", asc.getContent().get(1).getSku());
+
+        // When sorting by PRICE DESC: both have 25.00, tie breaker still SKU-X < SKU-Y
+        PagedResult<Product> desc = repository.findAll(1, 10, SortField.PRICE, SortDirection.DESC);
+        assertEquals("SKU-X", desc.getContent().get(0).getSku());
+        assertEquals("SKU-Y", desc.getContent().get(1).getSku());
+    }
+
+    @Test
+    @DisplayName("Should paginate products across first, middle, and final pages")
+    void shouldPaginateProductsAcrossPages() {
+        repository.save(new Product("SKU-1", "Product 1", new BigDecimal("10.00"), 10, 1));
+        repository.save(new Product("SKU-2", "Product 2", new BigDecimal("10.00"), 10, 1));
+        repository.save(new Product("SKU-3", "Product 3", new BigDecimal("10.00"), 10, 1));
+        repository.save(new Product("SKU-4", "Product 4", new BigDecimal("10.00"), 10, 1));
+        repository.save(new Product("SKU-5", "Product 5", new BigDecimal("10.00"), 10, 1));
+
+        // Page 1 (items 1-2 of 5)
+        PagedResult<Product> page1 = repository.findAll(1, 2, SortField.SKU, SortDirection.ASC);
+        assertEquals(2, page1.getContent().size());
+        assertEquals("SKU-1", page1.getContent().get(0).getSku());
+        assertEquals("SKU-2", page1.getContent().get(1).getSku());
+        assertEquals(5L, page1.getTotalElements());
+        assertEquals(3, page1.getTotalPages());
+        assertTrue(page1.hasNext());
+        assertFalse(page1.hasPrevious());
+
+        // Page 2 (items 3-4 of 5)
+        PagedResult<Product> page2 = repository.findAll(2, 2, SortField.SKU, SortDirection.ASC);
+        assertEquals(2, page2.getContent().size());
+        assertEquals("SKU-3", page2.getContent().get(0).getSku());
+        assertEquals("SKU-4", page2.getContent().get(1).getSku());
+        assertTrue(page2.hasNext());
+        assertTrue(page2.hasPrevious());
+
+        // Page 3 (final page, item 5 of 5)
+        PagedResult<Product> page3 = repository.findAll(3, 2, SortField.SKU, SortDirection.ASC);
+        assertEquals(1, page3.getContent().size());
+        assertEquals("SKU-5", page3.getContent().get(0).getSku());
+        assertFalse(page3.hasNext());
+        assertTrue(page3.hasPrevious());
+    }
+
+    @Test
+    @DisplayName("Should return empty content when requesting beyond final page without error")
+    void shouldReturnEmptyContentWhenRequestingBeyondFinalPage() {
+        repository.save(new Product("SKU-1", "Product 1", new BigDecimal("10.00"), 10, 1));
+
+        PagedResult<Product> beyond = repository.findAll(2, 5, SortField.SKU, SortDirection.ASC);
+        assertNotNull(beyond);
+        assertTrue(beyond.getContent().isEmpty());
+        assertEquals(1L, beyond.getTotalElements());
+        assertEquals(1, beyond.getTotalPages());
+        assertFalse(beyond.hasNext());
+        assertTrue(beyond.hasPrevious());
+    }
+
+    @Test
+    @DisplayName("Should return empty paged result when repository has no products")
+    void shouldReturnEmptyPagedResultWhenRepositoryIsEmpty() {
+        PagedResult<Product> empty = repository.findAll(1, 10, SortField.SKU, SortDirection.ASC);
+        assertNotNull(empty);
+        assertTrue(empty.getContent().isEmpty());
+        assertEquals(0L, empty.getTotalElements());
+        assertEquals(0, empty.getTotalPages());
+    }
+
+    @Test
+    @DisplayName("Should safely handle large offset boundary values without integer overflow")
+    void shouldSafelyHandleLargeOffsetBoundaryValues() {
+        repository.save(new Product("SKU-1", "Product 1", new BigDecimal("10.00"), 10, 1));
+
+        PagedResult<Product> result = repository.findAll(1_000_000, 100, SortField.SKU, SortDirection.ASC);
+        assertNotNull(result);
+        assertTrue(result.getContent().isEmpty());
+        assertEquals(1L, result.getTotalElements());
     }
 }

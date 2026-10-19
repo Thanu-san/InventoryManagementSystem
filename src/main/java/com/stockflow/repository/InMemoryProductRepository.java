@@ -1,7 +1,10 @@
 package com.stockflow.repository;
 
 import com.stockflow.model.InventorySummary;
+import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
+import com.stockflow.model.SortDirection;
+import com.stockflow.model.SortField;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -96,6 +99,67 @@ public class InMemoryProductRepository implements ProductRepository {
                 .filter(p -> p.getName() != null && p.getName().toLowerCase(Locale.ROOT).contains(lowerQuery))
                 .sorted(Comparator.comparing(Product::getSku))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public long count() {
+        return productsBySku.size();
+    }
+
+    @Override
+    public PagedResult<Product> findAll(int page, int size, SortField sortField, SortDirection sortDirection) {
+        if (page < 1) {
+            throw new IllegalArgumentException("Page number must be greater than or equal to 1.");
+        }
+        if (size < 1) {
+            throw new IllegalArgumentException("Page size must be greater than or equal to 1.");
+        }
+        if (sortField == null) {
+            throw new IllegalArgumentException("Sort field cannot be null.");
+        }
+        if (sortDirection == null) {
+            throw new IllegalArgumentException("Sort direction cannot be null.");
+        }
+
+        long totalElements = productsBySku.size();
+        if (totalElements == 0) {
+            return new PagedResult<>(Collections.emptyList(), page, size, 0L);
+        }
+
+        long offset = (long) (page - 1) * size;
+        if (offset >= totalElements) {
+            return new PagedResult<>(Collections.emptyList(), page, size, totalElements);
+        }
+
+        Comparator<Product> baseComparator = switch (sortField) {
+            case SKU -> Comparator.comparing(Product::getSku);
+            case NAME -> Comparator.comparing(Product::getName, Comparator.nullsLast(Comparator.naturalOrder()));
+            case PRICE -> Comparator.comparing(Product::getPrice);
+            case QUANTITY -> Comparator.comparingInt(Product::getQuantity);
+        };
+
+        Comparator<Product> effectiveComparator;
+        if (sortDirection == SortDirection.DESC) {
+            if (sortField == SortField.SKU) {
+                effectiveComparator = baseComparator.reversed();
+            } else {
+                effectiveComparator = baseComparator.reversed().thenComparing(Product::getSku);
+            }
+        } else {
+            if (sortField == SortField.SKU) {
+                effectiveComparator = baseComparator;
+            } else {
+                effectiveComparator = baseComparator.thenComparing(Product::getSku);
+            }
+        }
+
+        List<Product> products = productsBySku.values().stream()
+                .sorted(effectiveComparator)
+                .skip(offset)
+                .limit(size)
+                .collect(Collectors.toList());
+
+        return new PagedResult<>(products, page, size, totalElements);
     }
 
     @Override
