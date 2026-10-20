@@ -10,11 +10,13 @@ import com.stockflow.repository.JdbcPurchaseOrderReceiptRepository;
 import com.stockflow.repository.JdbcPurchaseOrderReportRepository;
 import com.stockflow.repository.JdbcPurchaseOrderRepository;
 import com.stockflow.repository.JdbcSupplierRepository;
+import com.stockflow.repository.JdbcSupplierReturnRepository;
 import com.stockflow.repository.ProductRepository;
 import com.stockflow.repository.PurchaseOrderReceiptRepository;
 import com.stockflow.repository.PurchaseOrderReportRepository;
 import com.stockflow.repository.PurchaseOrderRepository;
 import com.stockflow.repository.SupplierRepository;
+import com.stockflow.repository.SupplierReturnRepository;
 import com.stockflow.service.ProductService;
 import com.stockflow.service.PurchaseOrderService;
 import com.stockflow.service.SupplierService;
@@ -37,6 +39,7 @@ public class Main {
         PurchaseOrderRepository purchaseOrderRepository = new JdbcPurchaseOrderRepository();
         PurchaseOrderReceiptRepository receiptRepository = new JdbcPurchaseOrderReceiptRepository();
         PurchaseOrderReportRepository reportRepository = new JdbcPurchaseOrderReportRepository();
+        SupplierReturnRepository returnRepository = new JdbcSupplierReturnRepository();
 
         ProductService productService = new ProductService(productRepository, transactionRepository, supplierRepository, purchaseOrderRepository);
         ProductController productController = new ProductController(productService, scanner);
@@ -44,7 +47,7 @@ public class Main {
         SupplierService supplierService = new SupplierService(supplierRepository, productRepository, purchaseOrderRepository);
         SupplierController supplierController = new SupplierController(supplierService, scanner);
 
-        PurchaseOrderService purchaseOrderService = new PurchaseOrderService(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, reportRepository);
+        PurchaseOrderService purchaseOrderService = new PurchaseOrderService(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, reportRepository, returnRepository);
         PurchaseOrderController purchaseOrderController = new PurchaseOrderController(purchaseOrderService, scanner);
 
         System.out.println("============================================");

@@ -9,9 +9,13 @@ import com.stockflow.model.PurchaseOrderReceipt;
 import com.stockflow.model.PurchaseOrderReceiptItem;
 import com.stockflow.model.PurchaseOrderStatus;
 import com.stockflow.model.ReceiptLineInput;
+import com.stockflow.model.ReceiptLineReturnableInfo;
 import com.stockflow.model.ReceivingHistoryReportItem;
+import com.stockflow.model.ReturnLineInput;
 import com.stockflow.model.Supplier;
 import com.stockflow.model.SupplierPurchasingSummaryItem;
+import com.stockflow.model.SupplierReturn;
+import com.stockflow.model.SupplierReturnItem;
 import com.stockflow.service.PurchaseOrderService;
 
 import java.math.BigDecimal;
@@ -55,8 +59,9 @@ public class PurchaseOrderController {
             System.out.println("7. Cancel Purchase Order");
             System.out.println("8. Receive Goods Against Purchase Order");
             System.out.println("9. View Receiving History for Order");
-            System.out.println("10. Purchase Order Reports");
-            System.out.println("11. Back to Main Menu");
+            System.out.println("10. Supplier Returns");
+            System.out.println("11. Purchase Order Reports");
+            System.out.println("12. Back to Main Menu");
             System.out.print("Select an option: ");
 
             if (!scanner.hasNextLine()) {
@@ -73,8 +78,9 @@ public class PurchaseOrderController {
                 case "7" -> handleCancelOrder();
                 case "8" -> handleReceiveGoods();
                 case "9" -> handleViewReceiptHistory();
-                case "10" -> handlePurchaseOrderReportsMenu();
-                case "11" -> back = true;
+                case "10" -> handleSupplierReturnsMenu();
+                case "11" -> handlePurchaseOrderReportsMenu();
+                case "12" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -775,6 +781,267 @@ public class PurchaseOrderController {
                 return Optional.of(LocalDate.parse(input));
             } catch (DateTimeParseException e) {
                 System.out.println("Error: Invalid date format: '" + input + "'. Expected format: YYYY-MM-DD (e.g. 2026-10-20).");
+            }
+        }
+    }
+
+    private void handleSupplierReturnsMenu() {
+        boolean back = false;
+        while (!back) {
+            System.out.println("\n--- Supplier Returns ---");
+            System.out.println("1. Create Supplier Return");
+            System.out.println("2. View Return History for Order");
+            System.out.println("3. View Return Details");
+            System.out.println("4. Back to Purchase Order Menu");
+            System.out.print("Select an option: ");
+
+            if (!scanner.hasNextLine()) {
+                break;
+            }
+            String choice = scanner.nextLine().trim();
+            switch (choice) {
+                case "1" -> handleCreateSupplierReturn();
+                case "2" -> handleViewReturnHistoryForOrder();
+                case "3" -> handleViewReturnDetails();
+                case "4" -> back = true;
+                default -> System.out.println("Invalid option. Please try again.");
+            }
+        }
+    }
+
+    private void handleCreateSupplierReturn() {
+        System.out.println("\n[ Create Supplier Return ]");
+
+        Optional<String> orderNumOpt = promptNonBlankString("Enter Purchase Order Number: ", "Order number");
+        if (orderNumOpt.isEmpty()) {
+            return;
+        }
+        String orderNumber = orderNumOpt.get();
+
+        try {
+            List<ReceiptLineReturnableInfo> lines = purchaseOrderService.getReturnableReceiptLinesForOrder(orderNumber);
+            if (lines.isEmpty()) {
+                System.out.println("No delivery receipts found for purchase order: " + orderNumber);
+                return;
+            }
+
+            System.out.printf("\n--- Receipt Lines for Order %s ---%n", orderNumber);
+            System.out.printf("%-6s | %-16s | %-12s | %-12s | %-20s | %-10s | %-10s | %-10s | %-10s%n",
+                    "LINE", "RECEIPT NUMBER", "DATE", "SKU", "PRODUCT", "RECEIVED", "RETURNED", "RETURNABLE", "IN STOCK");
+            System.out.println("-".repeat(120));
+
+            for (ReceiptLineReturnableInfo line : lines) {
+                System.out.printf("%-6d | %-16s | %-12s | %-12s | %-20s | %-10d | %-10d | %-10d | %-10d%n",
+                        line.getReceiptItemId(),
+                        line.getReceiptNumber(),
+                        line.getReceiptDate().toLocalDate(),
+                        line.getProductSku(),
+                        line.getProductName(),
+                        line.getReceivedQuantity(),
+                        line.getPreviouslyReturnedQuantity(),
+                        line.getReturnableQuantity(),
+                        line.getCurrentStockQuantity());
+            }
+
+            List<ReceiptLineReturnableInfo> returnableLines = lines.stream()
+                    .filter(ReceiptLineReturnableInfo::isReturnable)
+                    .toList();
+
+            if (returnableLines.isEmpty()) {
+                System.out.println("No goods on this order are currently eligible for return (either fully returned or zero stock available).");
+                return;
+            }
+
+            Optional<Integer> lineIdOpt = promptPositiveIntInput("Enter Receipt Line ID to return: ", "Receipt Line ID");
+            if (lineIdOpt.isEmpty()) {
+                return;
+            }
+            long selectedLineId = lineIdOpt.get();
+
+            ReceiptLineReturnableInfo selectedLine = returnableLines.stream()
+                    .filter(l -> l.getReceiptItemId().equals(selectedLineId))
+                    .findFirst()
+                    .orElse(null);
+
+            if (selectedLine == null) {
+                System.out.println("Error: Selected receipt line ID is not valid or not eligible for return on order: " + orderNumber);
+                return;
+            }
+
+            int maxReturnable = Math.min(selectedLine.getReturnableQuantity(), selectedLine.getCurrentStockQuantity());
+            Optional<Integer> qtyOpt = promptBoundedIntInput(
+                    "Enter Return Quantity [1 - " + maxReturnable + "]: ", "Return quantity", 1, maxReturnable);
+            if (qtyOpt.isEmpty()) {
+                return;
+            }
+            int returnQty = qtyOpt.get();
+
+            Optional<String> reasonOpt = readLine("Enter Return Reason (optional, press Enter to skip): ");
+            String reason = reasonOpt.map(String::trim).filter(s -> !s.isEmpty()).orElse(null);
+
+            System.out.println("\n--- Review Proposed Return ---");
+            System.out.println("Purchase Order:     " + orderNumber);
+            System.out.println("Receipt Line ID:    " + selectedLine.getReceiptItemId() + " (Receipt: " + selectedLine.getReceiptNumber() + ")");
+            System.out.println("Product:            " + selectedLine.getProductSku() + " - " + selectedLine.getProductName());
+            System.out.println("Return Quantity:    " + returnQty);
+            System.out.println("Stock Impact:       " + selectedLine.getCurrentStockQuantity() + " -> " + (selectedLine.getCurrentStockQuantity() - returnQty));
+            System.out.println("Return Reason:      " + (reason != null ? reason : "None specified"));
+
+            System.out.print("Confirm return? (Y/N): ");
+            if (!scanner.hasNextLine()) {
+                return;
+            }
+            String confirm = scanner.nextLine().trim();
+            if (!confirm.equalsIgnoreCase("y")) {
+                System.out.println("Return cancelled.");
+                return;
+            }
+
+            ReturnLineInput returnInput = new ReturnLineInput(selectedLine.getReceiptItemId(), returnQty, reason);
+            SupplierReturn result = purchaseOrderService.createSupplierReturn(orderNumber, List.of(returnInput), reason);
+
+            System.out.println("Success: Supplier return recorded successfully!");
+            System.out.println("Return Number:        " + result.getReturnNumber());
+            System.out.println("Total Units Returned: " + result.getTotalReturnedUnits());
+            System.out.println("Inventory Audit:      STOCK_OUT transaction created and product stock updated.");
+
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleViewReturnHistoryForOrder() {
+        System.out.println("\n[ View Return History for Order ]");
+
+        Optional<String> orderNumOpt = promptNonBlankString("Enter Purchase Order Number: ", "Order number");
+        if (orderNumOpt.isEmpty()) {
+            return;
+        }
+        String orderNumber = orderNumOpt.get();
+
+        try {
+            List<SupplierReturn> returns = purchaseOrderService.getReturnsForOrder(orderNumber);
+            if (returns.isEmpty()) {
+                System.out.println("No return records found for purchase order: " + orderNumber);
+                return;
+            }
+
+            System.out.printf("\n--- Return History for Order: %s ---%n", orderNumber);
+            for (SupplierReturn r : returns) {
+                System.out.println("-".repeat(80));
+                System.out.printf("Return Number: %-18s | Date: %-19s%n",
+                        r.getReturnNumber(), r.getReturnDate().format(DATE_FORMATTER));
+                System.out.printf("Reason:        %-25s | Total Units: %-5d%n",
+                        r.getReason() != null ? r.getReason() : "None", r.getTotalReturnedUnits());
+                System.out.println("Returned Items:");
+                System.out.printf("  %-8s | %-16s | %-12s | %-10s | %-20s | %-15s%n",
+                        "ITEM ID", "RECEIPT LINE ID", "PRODUCT ID", "QUANTITY", "LINE REASON", "STOCK_OUT TX ID");
+                for (SupplierReturnItem item : r.getItems()) {
+                    System.out.printf("  %-8d | %-16d | %-12d | %-10d | %-20s | %-15d%n",
+                            item.getId(),
+                            item.getPurchaseOrderReceiptItemId(),
+                            item.getProductId(),
+                            item.getQuantity(),
+                            item.getReason() != null ? item.getReason() : "-",
+                            item.getInventoryTransactionId());
+                }
+            }
+            System.out.println("-".repeat(80));
+
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleViewReturnDetails() {
+        System.out.println("\n[ View Supplier Return Details ]");
+
+        Optional<String> returnNumOpt = promptNonBlankString("Enter Supplier Return Number: ", "Return number");
+        if (returnNumOpt.isEmpty()) {
+            return;
+        }
+        String returnNumber = returnNumOpt.get();
+
+        try {
+            Optional<SupplierReturn> returnOpt = purchaseOrderService.getReturnByNumber(returnNumber);
+            if (returnOpt.isEmpty()) {
+                System.out.println("Validation Error: Supplier return not found with return number: " + returnNumber);
+                return;
+            }
+
+            SupplierReturn r = returnOpt.get();
+            System.out.println("\n--- Supplier Return Details ---");
+            System.out.println("Return Number:       " + r.getReturnNumber());
+            System.out.println("Purchase Order ID:   " + r.getPurchaseOrderId());
+            System.out.println("Return Date:         " + r.getReturnDate().format(DATE_FORMATTER));
+            System.out.println("Return Reason:       " + (r.getReason() != null ? r.getReason() : "None specified"));
+            System.out.println("Total Units:         " + r.getTotalReturnedUnits());
+
+            System.out.println("\nReturn Items:");
+            System.out.printf("%-8s | %-16s | %-12s | %-10s | %-20s | %-15s%n",
+                    "ITEM ID", "RECEIPT LINE ID", "PRODUCT ID", "QUANTITY", "LINE REASON", "STOCK_OUT TX ID");
+            System.out.println("-".repeat(95));
+
+            for (SupplierReturnItem item : r.getItems()) {
+                System.out.printf("%-8d | %-16d | %-12d | %-10d | %-20s | %-15d%n",
+                        item.getId(),
+                        item.getPurchaseOrderReceiptItemId(),
+                        item.getProductId(),
+                        item.getQuantity(),
+                        item.getReason() != null ? item.getReason() : "-",
+                        item.getInventoryTransactionId());
+            }
+            System.out.println("-".repeat(95));
+
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private Optional<Integer> promptPositiveIntInput(String prompt, String fieldName) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            try {
+                int val = Integer.parseInt(lineOpt.get().trim());
+                if (val > 0) {
+                    return Optional.of(val);
+                }
+                System.out.println("Error: " + fieldName + " must be greater than zero. Please try again.");
+            } catch (NumberFormatException e) {
+                System.out.println("Error: Invalid number format. Please enter a valid whole number.");
+            }
+        }
+    }
+
+    private Optional<Integer> promptBoundedIntInput(String prompt, String fieldName, int min, int max) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            try {
+                int val = Integer.parseInt(lineOpt.get().trim());
+                if (val >= min && val <= max) {
+                    return Optional.of(val);
+                }
+                System.out.println("Error: " + fieldName + " must be between " + min + " and " + max + ". Please try again.");
+            } catch (NumberFormatException e) {
+                System.out.println("Error: Invalid number format. Please enter a valid whole number.");
             }
         }
     }

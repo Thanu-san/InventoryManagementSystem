@@ -6,53 +6,62 @@ import com.stockflow.model.Product;
 import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
 import com.stockflow.model.PurchaseOrderReceipt;
+import com.stockflow.model.PurchaseOrderReceiptItem;
 import com.stockflow.model.PurchaseOrderStatus;
 import com.stockflow.model.ReceiptLineInput;
+import com.stockflow.model.ReceiptLineReturnableInfo;
 import com.stockflow.model.ReceivingHistoryReportItem;
+import com.stockflow.model.ReturnLineInput;
 import com.stockflow.model.Supplier;
 import com.stockflow.model.SupplierPurchasingSummaryItem;
+import com.stockflow.model.SupplierReturn;
 import com.stockflow.repository.ProductRepository;
 import com.stockflow.repository.PurchaseOrderReceiptRepository;
 import com.stockflow.repository.PurchaseOrderReportRepository;
 import com.stockflow.repository.PurchaseOrderRepository;
 import com.stockflow.repository.SupplierRepository;
+import com.stockflow.repository.SupplierReturnRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Service coordinating purchase order operations, receiving workflows, and business rules.
- * Handles draft creation, editing line items, placing, cancelling, receiving deliveries, and validation.
+ * Handles draft creation, editing line items, placing, cancelling, receiving deliveries, returns, and validation.
  */
 public class PurchaseOrderService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final AtomicInteger SEQUENCE = new AtomicInteger(1001);
     private static final AtomicInteger RECEIPT_SEQUENCE = new AtomicInteger(1001);
+    private static final AtomicInteger RETURN_SEQUENCE = new AtomicInteger(1001);
 
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final SupplierRepository supplierRepository;
     private final ProductRepository productRepository;
     private final PurchaseOrderReceiptRepository receiptRepository;
     private final PurchaseOrderReportRepository reportRepository;
+    private final SupplierReturnRepository returnRepository;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
                                 SupplierRepository supplierRepository,
                                 ProductRepository productRepository) {
-        this(purchaseOrderRepository, supplierRepository, productRepository, null, null);
+        this(purchaseOrderRepository, supplierRepository, productRepository, null, null, null);
     }
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
                                 SupplierRepository supplierRepository,
                                 ProductRepository productRepository,
                                 PurchaseOrderReceiptRepository receiptRepository) {
-        this(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, null);
+        this(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, null, null);
     }
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
@@ -60,6 +69,15 @@ public class PurchaseOrderService {
                                 ProductRepository productRepository,
                                 PurchaseOrderReceiptRepository receiptRepository,
                                 PurchaseOrderReportRepository reportRepository) {
+        this(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, reportRepository, null);
+    }
+
+    public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
+                                SupplierRepository supplierRepository,
+                                ProductRepository productRepository,
+                                PurchaseOrderReceiptRepository receiptRepository,
+                                PurchaseOrderReportRepository reportRepository,
+                                SupplierReturnRepository returnRepository) {
         if (purchaseOrderRepository == null) {
             throw new IllegalArgumentException("PurchaseOrderRepository cannot be null.");
         }
@@ -74,6 +92,7 @@ public class PurchaseOrderService {
         this.productRepository = productRepository;
         this.receiptRepository = receiptRepository;
         this.reportRepository = reportRepository;
+        this.returnRepository = returnRepository;
     }
 
     /**
@@ -349,6 +368,122 @@ public class PurchaseOrderService {
         return reportRepository.getSupplierPurchasingSummary();
     }
 
+    /**
+     * Records a supplier return against received goods for a purchase order.
+     */
+    public SupplierReturn createSupplierReturn(String orderNumber, List<ReturnLineInput> lines, String reason) {
+        if (returnRepository == null) {
+            throw new IllegalStateException("SupplierReturnRepository is not configured.");
+        }
+        if (orderNumber == null || orderNumber.trim().isEmpty()) {
+            throw new ValidationException("Order number cannot be blank.");
+        }
+        String cleanOrderNumber = orderNumber.trim();
+        PurchaseOrder order = purchaseOrderRepository.findByOrderNumber(cleanOrderNumber)
+                .orElseThrow(() -> new ValidationException("Purchase order not found with order number: " + cleanOrderNumber));
+
+        if (order.getStatus() == PurchaseOrderStatus.DRAFT) {
+            throw new ValidationException("Cannot return goods against DRAFT purchase order: " + order.getOrderNumber());
+        }
+        if (order.getStatus() == PurchaseOrderStatus.CANCELLED) {
+            throw new ValidationException("Cannot return goods against CANCELLED purchase order: " + order.getOrderNumber());
+        }
+
+        if (lines == null || lines.isEmpty()) {
+            throw new ValidationException("Cannot record return with no return line items.");
+        }
+
+        String returnNumber = generateUniqueReturnNumber();
+        return returnRepository.recordReturn(order.getId(), returnNumber, reason, lines);
+    }
+
+    /**
+     * Retrieves returnable status and quantities for all receipt lines of a purchase order.
+     */
+    public List<ReceiptLineReturnableInfo> getReturnableReceiptLinesForOrder(String orderNumber) {
+        if (receiptRepository == null || returnRepository == null) {
+            return Collections.emptyList();
+        }
+        if (orderNumber == null || orderNumber.trim().isEmpty()) {
+            throw new ValidationException("Order number cannot be blank.");
+        }
+        String cleanOrderNumber = orderNumber.trim();
+        PurchaseOrder order = purchaseOrderRepository.findByOrderNumber(cleanOrderNumber)
+                .orElseThrow(() -> new ValidationException("Purchase order not found with order number: " + cleanOrderNumber));
+
+        List<PurchaseOrderReceipt> receipts = receiptRepository.findReceiptsByOrderId(order.getId());
+        if (receipts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<Long, Integer> returnedMap = returnRepository.getReturnedQuantitiesForOrder(order.getId());
+        List<Product> allProducts = productRepository.findAll();
+
+        List<ReceiptLineReturnableInfo> result = new ArrayList<>();
+        for (PurchaseOrderReceipt receipt : receipts) {
+            for (PurchaseOrderReceiptItem receiptItem : receipt.getItems()) {
+                Optional<PurchaseOrderItem> poItemOpt = order.findItemById(receiptItem.getPurchaseOrderItemId());
+                String sku = poItemOpt.map(PurchaseOrderItem::getProductSku).orElse("UNKNOWN");
+                String name = poItemOpt.map(PurchaseOrderItem::getProductName).orElse("Unknown Product");
+                BigDecimal cost = poItemOpt.map(PurchaseOrderItem::getUnitCost).orElse(BigDecimal.ZERO);
+
+                int currentStock = allProducts.stream()
+                        .filter(p -> receiptItem.getProductId().equals(p.getId()))
+                        .findFirst()
+                        .map(Product::getQuantity)
+                        .orElse(0);
+
+                int previouslyReturned = returnedMap.getOrDefault(receiptItem.getId(), 0);
+                int returnable = Math.max(0, receiptItem.getQuantity() - previouslyReturned);
+
+                result.add(new ReceiptLineReturnableInfo(
+                        receiptItem.getId(),
+                        receipt.getReceiptNumber(),
+                        receipt.getReceiptDate(),
+                        order.getId(),
+                        receiptItem.getProductId(),
+                        sku,
+                        name,
+                        receiptItem.getQuantity(),
+                        previouslyReturned,
+                        returnable,
+                        currentStock,
+                        cost
+                ));
+            }
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    /**
+     * Retrieves all supplier returns recorded for a specific purchase order.
+     */
+    public List<SupplierReturn> getReturnsForOrder(String orderNumber) {
+        if (returnRepository == null) {
+            return Collections.emptyList();
+        }
+        if (orderNumber == null || orderNumber.trim().isEmpty()) {
+            throw new ValidationException("Order number cannot be blank.");
+        }
+        String cleanOrderNumber = orderNumber.trim();
+        PurchaseOrder order = purchaseOrderRepository.findByOrderNumber(cleanOrderNumber)
+                .orElseThrow(() -> new ValidationException("Purchase order not found with order number: " + cleanOrderNumber));
+        return returnRepository.findReturnsByOrderId(order.getId());
+    }
+
+    /**
+     * Finds a supplier return by its unique return number.
+     */
+    public Optional<SupplierReturn> getReturnByNumber(String returnNumber) {
+        if (returnRepository == null) {
+            return Optional.empty();
+        }
+        if (returnNumber == null || returnNumber.trim().isEmpty()) {
+            throw new ValidationException("Return number cannot be blank.");
+        }
+        return returnRepository.findByReturnNumber(returnNumber.trim());
+    }
+
     // --- Private Helper Methods ---
 
     private PurchaseOrder getExistingOrder(String orderNumber) {
@@ -383,6 +518,15 @@ public class PurchaseOrderService {
         do {
             candidate = "REC-" + datePrefix + "-" + RECEIPT_SEQUENCE.getAndIncrement();
         } while (receiptRepository != null && receiptRepository.findByReceiptNumber(candidate).isPresent());
+        return candidate;
+    }
+
+    private synchronized String generateUniqueReturnNumber() {
+        String datePrefix = LocalDateTime.now().format(DATE_FORMATTER);
+        String candidate;
+        do {
+            candidate = "RET-" + datePrefix + "-" + RETURN_SEQUENCE.getAndIncrement();
+        } while (returnRepository != null && returnRepository.existsByReturnNumber(candidate));
         return candidate;
     }
 }

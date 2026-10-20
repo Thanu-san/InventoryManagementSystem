@@ -10,6 +10,7 @@ import com.stockflow.repository.InMemoryPurchaseOrderReceiptRepository;
 import com.stockflow.repository.InMemoryPurchaseOrderReportRepository;
 import com.stockflow.repository.InMemoryPurchaseOrderRepository;
 import com.stockflow.repository.InMemorySupplierRepository;
+import com.stockflow.repository.InMemorySupplierReturnRepository;
 import com.stockflow.service.PurchaseOrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +36,7 @@ class PurchaseOrderControllerReportTest {
     private InMemoryInventoryTransactionRepository transactionRepository;
     private InMemoryPurchaseOrderReceiptRepository receiptRepository;
     private InMemoryPurchaseOrderReportRepository reportRepository;
+    private InMemorySupplierReturnRepository returnRepository;
     private PurchaseOrderService poService;
 
     @BeforeEach
@@ -45,7 +47,8 @@ class PurchaseOrderControllerReportTest {
         transactionRepository = new InMemoryInventoryTransactionRepository(productRepository);
         receiptRepository = new InMemoryPurchaseOrderReceiptRepository(poRepository, productRepository, transactionRepository);
         reportRepository = new InMemoryPurchaseOrderReportRepository(poRepository, supplierRepository, receiptRepository);
-        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository, receiptRepository, reportRepository);
+        returnRepository = new InMemorySupplierReturnRepository(poRepository, receiptRepository, productRepository, transactionRepository);
+        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository, receiptRepository, reportRepository, returnRepository);
 
         supplierRepository.save(new Supplier("SUP-100", "Acme Supplies", null, null, null, null));
         productRepository.save(new Product("SKU-100", "Widget", new BigDecimal("10.00"), 50, 5));
@@ -69,9 +72,9 @@ class PurchaseOrderControllerReportTest {
     @DisplayName("Should navigate to reports submenu and return to previous menu")
     void shouldNavigateToReportsMenuAndReturn() {
         String input = String.join("\n",
-                "10", // Open Reports Submenu
+                "11", // Open Reports Submenu
                 "4",  // Back to Purchase Order Menu
-                "11"  // Back to Main Menu
+                "12"  // Back to Main Menu
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -86,10 +89,10 @@ class PurchaseOrderControllerReportTest {
     @DisplayName("Should display message when no outstanding purchase orders exist")
     void shouldDisplayNoOutstandingOrdersWhenEmpty() {
         String input = String.join("\n",
-                "10", // Open Reports Submenu
+                "11", // Open Reports Submenu
                 "1",  // Outstanding Purchase Orders
                 "4",  // Back
-                "11"  // Exit
+                "12"  // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -105,10 +108,10 @@ class PurchaseOrderControllerReportTest {
         poService.placeOrder("PO-OUT-1");
 
         String input = String.join("\n",
-                "10", // Reports
+                "11", // Reports
                 "1",  // Outstanding
                 "4",  // Back
-                "11"  // Exit
+                "12"  // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -135,12 +138,12 @@ class PurchaseOrderControllerReportTest {
         String endStr = today.plusDays(1).toString();
 
         String input = String.join("\n",
-                "10",      // Reports
+                "11",      // Reports
                 "2",       // Receiving History
                 startStr,  // Start date
                 endStr,    // End date
                 "4",       // Back
-                "11"       // Exit
+                "12"       // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -157,13 +160,13 @@ class PurchaseOrderControllerReportTest {
     @DisplayName("Should handle invalid date formats and start date after end date")
     void shouldHandleInvalidDatesGracefully() {
         String input = String.join("\n",
-                "10",           // Reports
+                "11",           // Reports
                 "2",            // Receiving History
                 "not-a-date",   // Invalid date format
                 "2026-10-25",   // Valid start date
                 "2026-10-20",   // End date earlier than start date!
                 "4",            // Back
-                "11"            // Exit
+                "12"            // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -179,10 +182,10 @@ class PurchaseOrderControllerReportTest {
         poService.placeOrder("PO-SUP-SUMM");
 
         String input = String.join("\n",
-                "10", // Reports
+                "11", // Reports
                 "3",  // Supplier Purchasing Summary
                 "4",  // Back
-                "11"  // Exit
+                "12"  // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -197,10 +200,10 @@ class PurchaseOrderControllerReportTest {
     @DisplayName("Should handle invalid choices in reports menu")
     void shouldHandleInvalidReportsMenuChoice() {
         String input = String.join("\n",
-                "10", // Reports
+                "11", // Reports
                 "99", // Invalid choice
                 "4",  // Back
-                "11"  // Exit
+                "12"  // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
