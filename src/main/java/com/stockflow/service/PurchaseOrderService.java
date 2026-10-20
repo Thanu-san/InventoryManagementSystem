@@ -1,21 +1,27 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.OutstandingPurchaseOrderReportItem;
 import com.stockflow.model.Product;
 import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
 import com.stockflow.model.PurchaseOrderReceipt;
 import com.stockflow.model.PurchaseOrderStatus;
 import com.stockflow.model.ReceiptLineInput;
+import com.stockflow.model.ReceivingHistoryReportItem;
 import com.stockflow.model.Supplier;
+import com.stockflow.model.SupplierPurchasingSummaryItem;
 import com.stockflow.repository.ProductRepository;
 import com.stockflow.repository.PurchaseOrderReceiptRepository;
+import com.stockflow.repository.PurchaseOrderReportRepository;
 import com.stockflow.repository.PurchaseOrderRepository;
 import com.stockflow.repository.SupplierRepository;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,17 +40,26 @@ public class PurchaseOrderService {
     private final SupplierRepository supplierRepository;
     private final ProductRepository productRepository;
     private final PurchaseOrderReceiptRepository receiptRepository;
+    private final PurchaseOrderReportRepository reportRepository;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
                                 SupplierRepository supplierRepository,
                                 ProductRepository productRepository) {
-        this(purchaseOrderRepository, supplierRepository, productRepository, null);
+        this(purchaseOrderRepository, supplierRepository, productRepository, null, null);
     }
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
                                 SupplierRepository supplierRepository,
                                 ProductRepository productRepository,
                                 PurchaseOrderReceiptRepository receiptRepository) {
+        this(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, null);
+    }
+
+    public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
+                                SupplierRepository supplierRepository,
+                                ProductRepository productRepository,
+                                PurchaseOrderReceiptRepository receiptRepository,
+                                PurchaseOrderReportRepository reportRepository) {
         if (purchaseOrderRepository == null) {
             throw new IllegalArgumentException("PurchaseOrderRepository cannot be null.");
         }
@@ -58,6 +73,7 @@ public class PurchaseOrderService {
         this.supplierRepository = supplierRepository;
         this.productRepository = productRepository;
         this.receiptRepository = receiptRepository;
+        this.reportRepository = reportRepository;
     }
 
     /**
@@ -292,6 +308,45 @@ public class PurchaseOrderService {
             return Optional.empty();
         }
         return supplierRepository.findById(order.getSupplierId());
+    }
+
+    /**
+     * Generates a report of purchase orders with status PLACED or PARTIALLY_RECEIVED that have unfulfilled units.
+     */
+    public List<OutstandingPurchaseOrderReportItem> getOutstandingPurchaseOrdersReport() {
+        if (reportRepository == null) {
+            throw new IllegalStateException("PurchaseOrderReportRepository is not configured.");
+        }
+        return reportRepository.getOutstandingPurchaseOrdersReport();
+    }
+
+    /**
+     * Generates a receiving history report for goods received within the specified inclusive date range.
+     */
+    public List<ReceivingHistoryReportItem> getReceivingHistoryReport(LocalDate startDate, LocalDate endDate) {
+        if (reportRepository == null) {
+            throw new IllegalStateException("PurchaseOrderReportRepository is not configured.");
+        }
+        if (startDate == null) {
+            throw new ValidationException("Start date cannot be null.");
+        }
+        if (endDate == null) {
+            throw new ValidationException("End date cannot be null.");
+        }
+        if (startDate.isAfter(endDate)) {
+            throw new ValidationException("Start date cannot be after end date.");
+        }
+        return reportRepository.getReceivingHistoryReport(startDate, endDate);
+    }
+
+    /**
+     * Generates a purchasing and fulfillment summary grouped by supplier.
+     */
+    public List<SupplierPurchasingSummaryItem> getSupplierPurchasingSummary() {
+        if (reportRepository == null) {
+            throw new IllegalStateException("PurchaseOrderReportRepository is not configured.");
+        }
+        return reportRepository.getSupplierPurchasingSummary();
     }
 
     // --- Private Helper Methods ---

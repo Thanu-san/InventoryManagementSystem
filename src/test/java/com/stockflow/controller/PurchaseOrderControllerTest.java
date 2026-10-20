@@ -8,6 +8,7 @@ import com.stockflow.model.Supplier;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
 import com.stockflow.repository.InMemoryPurchaseOrderReceiptRepository;
+import com.stockflow.repository.InMemoryPurchaseOrderReportRepository;
 import com.stockflow.repository.InMemoryPurchaseOrderRepository;
 import com.stockflow.repository.InMemorySupplierRepository;
 import com.stockflow.service.PurchaseOrderService;
@@ -33,6 +34,7 @@ class PurchaseOrderControllerTest {
     private InMemoryProductRepository productRepository;
     private InMemoryInventoryTransactionRepository transactionRepository;
     private InMemoryPurchaseOrderReceiptRepository receiptRepository;
+    private InMemoryPurchaseOrderReportRepository reportRepository;
     private PurchaseOrderService poService;
 
     @BeforeEach
@@ -42,7 +44,8 @@ class PurchaseOrderControllerTest {
         productRepository = new InMemoryProductRepository();
         transactionRepository = new InMemoryInventoryTransactionRepository(productRepository);
         receiptRepository = new InMemoryPurchaseOrderReceiptRepository(poRepository, productRepository, transactionRepository);
-        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository, receiptRepository);
+        reportRepository = new InMemoryPurchaseOrderReportRepository(poRepository, supplierRepository, receiptRepository);
+        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository, receiptRepository, reportRepository);
 
         supplierRepository.save(new Supplier("SUP-01", "Global Supplier", null, null, null, null));
         productRepository.save(new Product("SKU-100", "Widget", new BigDecimal("10.00"), 50, 5));
@@ -63,9 +66,9 @@ class PurchaseOrderControllerTest {
     }
 
     @Test
-    @DisplayName("Should display menu and exit on option 10")
-    void shouldExitOnOption10() {
-        String output = runControllerWithInput("10\n");
+    @DisplayName("Should display menu and exit on option 11")
+    void shouldExitOnOption11() {
+        String output = runControllerWithInput("11\n");
         assertTrue(output.contains("--- Purchase Order Management ---"));
     }
 
@@ -79,7 +82,7 @@ class PurchaseOrderControllerTest {
     @Test
     @DisplayName("Should handle invalid menu choices")
     void shouldHandleInvalidMenuChoices() {
-        String output = runControllerWithInput("99\n10\n");
+        String output = runControllerWithInput("99\n11\n");
         assertTrue(output.contains("Invalid option. Please try again."));
     }
 
@@ -90,7 +93,7 @@ class PurchaseOrderControllerTest {
                 "1",             // Menu option 1: Create Draft
                 "SUP-01",        // Supplier code
                 "PO-TEST-101",   // Custom order number
-                "10"             // Exit
+                "11"             // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -107,7 +110,7 @@ class PurchaseOrderControllerTest {
                 "1",        // Menu option 1: Create Draft
                 "SUP-01",   // Supplier code
                 "",         // Press enter for auto-generated
-                "10"        // Exit
+                "11"        // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -122,7 +125,7 @@ class PurchaseOrderControllerTest {
                 "1",            // Create Draft
                 "NON-EXIST",    // Supplier code
                 "PO-1",         // Order number
-                "10"            // Exit
+                "11"            // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -140,7 +143,7 @@ class PurchaseOrderControllerTest {
                 "SKU-100",   // SKU
                 "5",         // Quantity
                 "12.50",     // Unit cost
-                "10"         // Exit
+                "11"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -163,7 +166,7 @@ class PurchaseOrderControllerTest {
                 "PO-REM",    // Order number
                 "SKU-100",   // SKU
                 "Y",         // Confirm
-                "10"         // Exit
+                "11"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -184,7 +187,7 @@ class PurchaseOrderControllerTest {
                 "PO-NO-REM",  // Order number
                 "SKU-100",    // SKU
                 "N",          // Cancel
-                "10"          // Exit
+                "11"          // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -203,7 +206,7 @@ class PurchaseOrderControllerTest {
         String input = String.join("\n",
                 "4",         // View order
                 "PO-VIEW",   // Order number
-                "10"         // Exit
+                "11"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -221,7 +224,7 @@ class PurchaseOrderControllerTest {
         String input = String.join("\n",
                 "5",    // List orders
                 "1",    // All
-                "10"    // Exit
+                "11"    // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -239,7 +242,7 @@ class PurchaseOrderControllerTest {
                 "6",         // Place order
                 "PO-PLACE",  // Order number
                 "Y",         // Confirm
-                "10"         // Exit
+                "11"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -257,7 +260,7 @@ class PurchaseOrderControllerTest {
                 "7",          // Cancel order
                 "PO-CANCEL",  // Order number
                 "Y",          // Confirm
-                "10"          // Exit
+                "11"          // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -279,7 +282,7 @@ class PurchaseOrderControllerTest {
                 "6",            // Receive 6 units
                 "Batch #1",     // Delivery notes
                 "Y",            // Confirm receiving
-                "10"            // Exit
+                "11"            // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -304,7 +307,7 @@ class PurchaseOrderControllerTest {
         String input = String.join("\n",
                 "9",            // Option 9: View History
                 "PO-HIST-UI",   // Order number
-                "10"            // Exit
+                "11"            // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);

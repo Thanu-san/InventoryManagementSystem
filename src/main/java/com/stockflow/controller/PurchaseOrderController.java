@@ -2,17 +2,22 @@ package com.stockflow.controller;
 
 import com.stockflow.exception.DatabaseException;
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.OutstandingPurchaseOrderReportItem;
 import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
 import com.stockflow.model.PurchaseOrderReceipt;
 import com.stockflow.model.PurchaseOrderReceiptItem;
 import com.stockflow.model.PurchaseOrderStatus;
 import com.stockflow.model.ReceiptLineInput;
+import com.stockflow.model.ReceivingHistoryReportItem;
 import com.stockflow.model.Supplier;
+import com.stockflow.model.SupplierPurchasingSummaryItem;
 import com.stockflow.service.PurchaseOrderService;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -50,7 +55,8 @@ public class PurchaseOrderController {
             System.out.println("7. Cancel Purchase Order");
             System.out.println("8. Receive Goods Against Purchase Order");
             System.out.println("9. View Receiving History for Order");
-            System.out.println("10. Back to Main Menu");
+            System.out.println("10. Purchase Order Reports");
+            System.out.println("11. Back to Main Menu");
             System.out.print("Select an option: ");
 
             if (!scanner.hasNextLine()) {
@@ -67,7 +73,8 @@ public class PurchaseOrderController {
                 case "7" -> handleCancelOrder();
                 case "8" -> handleReceiveGoods();
                 case "9" -> handleViewReceiptHistory();
-                case "10" -> back = true;
+                case "10" -> handlePurchaseOrderReportsMenu();
+                case "11" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -556,6 +563,218 @@ public class PurchaseOrderController {
                 System.out.println("Error: Unit cost must be greater than or equal to zero. Please try again.");
             } catch (NumberFormatException e) {
                 System.out.println("Error: Invalid amount format. Please enter a valid decimal number.");
+            }
+        }
+    }
+
+    private void handlePurchaseOrderReportsMenu() {
+        boolean back = false;
+        while (!back) {
+            System.out.println("\n--- Purchase Order Reports ---");
+            System.out.println("1. View Outstanding Purchase Orders");
+            System.out.println("2. View Receiving History for Date Range");
+            System.out.println("3. View Supplier Purchasing Summary");
+            System.out.println("4. Back to Purchase Order Menu");
+            System.out.print("Select an option: ");
+
+            if (!scanner.hasNextLine()) {
+                break;
+            }
+            String choice = scanner.nextLine().trim();
+            switch (choice) {
+                case "1" -> handleOutstandingPurchaseOrdersReport();
+                case "2" -> handleReceivingHistoryReport();
+                case "3" -> handleSupplierPurchasingSummaryReport();
+                case "4" -> back = true;
+                default -> System.out.println("Invalid option. Please try again.");
+            }
+        }
+    }
+
+    private void handleOutstandingPurchaseOrdersReport() {
+        System.out.println("\n[ Outstanding Purchase Orders Report ]");
+        try {
+            List<OutstandingPurchaseOrderReportItem> report = purchaseOrderService.getOutstandingPurchaseOrdersReport();
+            if (report.isEmpty()) {
+                System.out.println("No outstanding purchase orders found.");
+                return;
+            }
+
+            System.out.printf("%-16s | %-12s | %-20s | %-12s | %-6s | %-8s | %-8s | %-10s | %-18s%n",
+                    "ORDER NUMBER", "SUPPLIER", "SUPPLIER NAME", "ORDER DATE", "LINES", "ORDERED", "RECEIVED", "REMAINING", "STATUS");
+            System.out.println("-".repeat(125));
+
+            int totalDistinctLines = 0;
+            int totalOrdered = 0;
+            int totalReceived = 0;
+            int totalRemaining = 0;
+
+            for (OutstandingPurchaseOrderReportItem item : report) {
+                System.out.printf("%-16s | %-12s | %-20s | %-12s | %-6d | %-8d | %-8d | %-10d | %-18s%n",
+                        item.getOrderNumber(),
+                        item.getSupplierCode(),
+                        item.getSupplierName(),
+                        item.getCreatedAt().toLocalDate(),
+                        item.getDistinctLineCount(),
+                        item.getOrderedUnits(),
+                        item.getReceivedUnits(),
+                        item.getRemainingUnits(),
+                        item.getStatus());
+
+                totalDistinctLines += item.getDistinctLineCount();
+                totalOrdered += item.getOrderedUnits();
+                totalReceived += item.getReceivedUnits();
+                totalRemaining += item.getRemainingUnits();
+            }
+
+            System.out.println("-".repeat(125));
+            System.out.printf("Summary: %d order(s) | %d line(s) | %d ordered units | %d received units | %d remaining units%n",
+                    report.size(), totalDistinctLines, totalOrdered, totalReceived, totalRemaining);
+
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleReceivingHistoryReport() {
+        System.out.println("\n[ Receiving History Report ]");
+
+        Optional<LocalDate> startDateOpt = promptDate("Enter Start Date (YYYY-MM-DD): ");
+        if (startDateOpt.isEmpty()) {
+            return;
+        }
+
+        Optional<LocalDate> endDateOpt = promptDate("Enter End Date (YYYY-MM-DD): ");
+        if (endDateOpt.isEmpty()) {
+            return;
+        }
+
+        LocalDate startDate = startDateOpt.get();
+        LocalDate endDate = endDateOpt.get();
+
+        if (startDate.isAfter(endDate)) {
+            System.out.println("Validation Error: Start date cannot be after end date.");
+            return;
+        }
+
+        try {
+            List<ReceivingHistoryReportItem> items = purchaseOrderService.getReceivingHistoryReport(startDate, endDate);
+            if (items.isEmpty()) {
+                System.out.printf("No receiving records found between %s and %s.%n", startDate, endDate);
+                return;
+            }
+
+            System.out.printf("\n--- Receiving History (%s to %s) ---%n", startDate, endDate);
+            System.out.printf("%-18s | %-16s | %-18s | %-12s | %-12s | %-20s | %-8s | %-12s | %-12s%n",
+                    "RECEIPT NUMBER", "ORDER NUMBER", "SUPPLIER", "DATE", "SKU", "PRODUCT", "RECEIVED", "UNIT COST", "LINE TOTAL");
+            System.out.println("-".repeat(140));
+
+            int totalUnits = 0;
+            BigDecimal totalValue = BigDecimal.ZERO;
+
+            for (ReceivingHistoryReportItem item : items) {
+                System.out.printf("%-18s | %-16s | %-18s | %-12s | %-12s | %-20s | %-8d | $%-11.2f | $%-11.2f%n",
+                        item.getReceiptNumber(),
+                        item.getOrderNumber(),
+                        item.getSupplierName(),
+                        item.getReceiptDate().toLocalDate(),
+                        item.getProductSku(),
+                        item.getProductName(),
+                        item.getReceivedQuantity(),
+                        item.getAgreedUnitCost(),
+                        item.getLineTotalCost());
+
+                totalUnits += item.getReceivedQuantity();
+                totalValue = totalValue.add(item.getLineTotalCost());
+            }
+
+            System.out.println("-".repeat(140));
+            System.out.printf("Summary: %d receipt line(s) | %d total units received | Total Value: $%.2f%n",
+                    items.size(), totalUnits, totalValue);
+
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleSupplierPurchasingSummaryReport() {
+        System.out.println("\n[ Supplier Purchasing Summary ]");
+        try {
+            List<SupplierPurchasingSummaryItem> summary = purchaseOrderService.getSupplierPurchasingSummary();
+            if (summary.isEmpty()) {
+                System.out.println("No suppliers found.");
+                return;
+            }
+
+            System.out.printf("%-12s | %-22s | %-8s | %-8s | %-8s | %-11s | %-15s | %-15s%n",
+                    "SUPPLIER", "NAME", "ORDERS", "ORDERED", "RECEIVED", "OUTSTANDING", "TOTAL PO VALUE", "RECEIVED VALUE");
+            System.out.println("-".repeat(118));
+
+            int totalOrders = 0;
+            int totalOrdered = 0;
+            int totalReceived = 0;
+            int totalOutstanding = 0;
+            BigDecimal grandPoValue = BigDecimal.ZERO;
+            BigDecimal grandReceivedValue = BigDecimal.ZERO;
+
+            for (SupplierPurchasingSummaryItem item : summary) {
+                System.out.printf("%-12s | %-22s | %-8d | %-8d | %-8d | %-11d | $%-14.2f | $%-14.2f%n",
+                        item.getSupplierCode(),
+                        item.getSupplierName(),
+                        item.getOrderCount(),
+                        item.getTotalOrderedUnits(),
+                        item.getTotalReceivedUnits(),
+                        item.getTotalOutstandingUnits(),
+                        item.getTotalOrderValue(),
+                        item.getTotalReceivedValue());
+
+                totalOrders += item.getOrderCount();
+                totalOrdered += item.getTotalOrderedUnits();
+                totalReceived += item.getTotalReceivedUnits();
+                totalOutstanding += item.getTotalOutstandingUnits();
+                grandPoValue = grandPoValue.add(item.getTotalOrderValue());
+                grandReceivedValue = grandReceivedValue.add(item.getTotalReceivedValue());
+            }
+
+            System.out.println("-".repeat(118));
+            System.out.printf("Total: %d supplier(s) | %d committed order(s) | %d ordered | %d received | %d outstanding%n",
+                    summary.size(), totalOrders, totalOrdered, totalReceived, totalOutstanding);
+            System.out.printf("Financial Total: Recorded Commitments: $%.2f | Goods Received: $%.2f%n",
+                    grandPoValue, grandReceivedValue);
+            System.out.println("Note: PO Value reflects committed orders (PLACED, PARTIALLY_RECEIVED, RECEIVED), not payments made.");
+
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private Optional<LocalDate> promptDate(String prompt) {
+        while (true) {
+            Optional<String> lineOpt = readLine(prompt);
+            if (lineOpt.isEmpty()) {
+                return Optional.empty();
+            }
+            String input = lineOpt.get().trim();
+            if (input.isEmpty()) {
+                System.out.println("Error: Date cannot be blank. Please enter in YYYY-MM-DD format.");
+                continue;
+            }
+            try {
+                return Optional.of(LocalDate.parse(input));
+            } catch (DateTimeParseException e) {
+                System.out.println("Error: Invalid date format: '" + input + "'. Expected format: YYYY-MM-DD (e.g. 2026-10-20).");
             }
         }
     }
