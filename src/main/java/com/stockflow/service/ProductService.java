@@ -19,6 +19,7 @@ import com.stockflow.repository.JdbcInventoryTransactionRepository;
 import com.stockflow.repository.JdbcProductRepository;
 import com.stockflow.repository.JdbcSupplierRepository;
 import com.stockflow.repository.ProductRepository;
+import com.stockflow.repository.PurchaseOrderRepository;
 import com.stockflow.repository.SupplierRepository;
 
 import java.math.BigDecimal;
@@ -34,25 +35,35 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final InventoryTransactionRepository transactionRepository;
     private final SupplierRepository supplierRepository;
+    private final PurchaseOrderRepository purchaseOrderRepository;
 
     public ProductService(ProductRepository productRepository) {
         this(productRepository, productRepository instanceof InMemoryProductRepository inMemoryRepo
                 ? new InMemoryInventoryTransactionRepository(inMemoryRepo)
                 : null,
+             null,
              null);
     }
 
     public ProductService(ProductRepository productRepository, InventoryTransactionRepository transactionRepository) {
-        this(productRepository, transactionRepository, null);
+        this(productRepository, transactionRepository, null, null);
     }
 
     public ProductService(ProductRepository productRepository,
                           InventoryTransactionRepository transactionRepository,
                           SupplierRepository supplierRepository) {
+        this(productRepository, transactionRepository, supplierRepository, null);
+    }
+
+    public ProductService(ProductRepository productRepository,
+                          InventoryTransactionRepository transactionRepository,
+                          SupplierRepository supplierRepository,
+                          PurchaseOrderRepository purchaseOrderRepository) {
         validateRepositoryCompatibility(productRepository, transactionRepository, supplierRepository);
         this.productRepository = productRepository;
         this.transactionRepository = transactionRepository;
         this.supplierRepository = supplierRepository;
+        this.purchaseOrderRepository = purchaseOrderRepository;
     }
 
     private static void validateRepositoryCompatibility(ProductRepository productRepo,
@@ -291,6 +302,11 @@ public class ProductService {
                 throw new ValidationException(
                         "Cannot delete product '" + sku.trim() + "' because it has recorded inventory transaction history.");
             }
+        }
+
+        if (purchaseOrderRepository != null && purchaseOrderRepository.existsByProductId(product.getId())) {
+            throw new ValidationException(
+                    "Cannot delete product '" + sku.trim() + "' because it is referenced by one or more purchase order line items.");
         }
 
         boolean deleted = productRepository.deleteBySku(sku.trim());

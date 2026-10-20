@@ -15,17 +15,25 @@ public class SupplierService {
 
     private final SupplierRepository supplierRepository;
     private final ProductRepository productRepository;
+    private final com.stockflow.repository.PurchaseOrderRepository purchaseOrderRepository;
 
     public SupplierService(SupplierRepository supplierRepository) {
-        this(supplierRepository, null);
+        this(supplierRepository, null, null);
     }
 
     public SupplierService(SupplierRepository supplierRepository, ProductRepository productRepository) {
+        this(supplierRepository, productRepository, null);
+    }
+
+    public SupplierService(SupplierRepository supplierRepository,
+                           ProductRepository productRepository,
+                           com.stockflow.repository.PurchaseOrderRepository purchaseOrderRepository) {
         if (supplierRepository == null) {
             throw new IllegalArgumentException("Supplier repository cannot be null.");
         }
         this.supplierRepository = supplierRepository;
         this.productRepository = productRepository;
+        this.purchaseOrderRepository = purchaseOrderRepository;
     }
 
     /**
@@ -122,6 +130,11 @@ public class SupplierService {
         if (productRepository != null && productRepository.existsBySupplierId(supplier.getId())) {
             throw new ValidationException(
                     "Cannot delete supplier '" + supplierCode.trim() + "' because it is currently assigned to one or more products.");
+        }
+
+        if (purchaseOrderRepository != null && purchaseOrderRepository.existsBySupplierId(supplier.getId())) {
+            throw new ValidationException(
+                    "Cannot delete supplier '" + supplierCode.trim() + "' because it is referenced by one or more purchase orders.");
         }
 
         boolean deleted = supplierRepository.deleteBySupplierCode(supplierCode.trim());
