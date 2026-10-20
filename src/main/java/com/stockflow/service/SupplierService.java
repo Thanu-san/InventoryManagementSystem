@@ -2,6 +2,7 @@ package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.Supplier;
+import com.stockflow.repository.ProductRepository;
 import com.stockflow.repository.SupplierRepository;
 
 import java.util.List;
@@ -13,12 +14,18 @@ import java.util.Optional;
 public class SupplierService {
 
     private final SupplierRepository supplierRepository;
+    private final ProductRepository productRepository;
 
     public SupplierService(SupplierRepository supplierRepository) {
+        this(supplierRepository, null);
+    }
+
+    public SupplierService(SupplierRepository supplierRepository, ProductRepository productRepository) {
         if (supplierRepository == null) {
             throw new IllegalArgumentException("Supplier repository cannot be null.");
         }
         this.supplierRepository = supplierRepository;
+        this.productRepository = productRepository;
     }
 
     /**
@@ -109,8 +116,13 @@ public class SupplierService {
             throw new ValidationException("Supplier code cannot be blank.");
         }
 
-        supplierRepository.findBySupplierCode(supplierCode.trim())
+        Supplier supplier = supplierRepository.findBySupplierCode(supplierCode.trim())
                 .orElseThrow(() -> new ValidationException("Supplier not found with code: " + supplierCode.trim()));
+
+        if (productRepository != null && productRepository.existsBySupplierId(supplier.getId())) {
+            throw new ValidationException(
+                    "Cannot delete supplier '" + supplierCode.trim() + "' because it is currently assigned to one or more products.");
+        }
 
         boolean deleted = supplierRepository.deleteBySupplierCode(supplierCode.trim());
         if (!deleted) {

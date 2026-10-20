@@ -89,4 +89,51 @@ class ProductTest {
         assertThrows(IllegalArgumentException.class, () -> product.setId(-1L));
         assertThrows(IllegalArgumentException.class, () -> product.setId(null));
     }
+
+    @Test
+    @DisplayName("Should construct product with supplier ID")
+    void shouldConstructProductWithSupplierId() {
+        Product product = new Product("SKU-SUP", "Headphones", new BigDecimal("59.99"), 10, 2, 50L);
+
+        assertEquals(50L, product.getSupplierId());
+        assertEquals("SKU-SUP", product.getSku());
+    }
+
+    @Test
+    @DisplayName("Should construct product with null supplier ID by default")
+    void shouldDefaultSupplierIdToNull() {
+        Product product = new Product("SKU-NOSUP", "Headphones", new BigDecimal("59.99"), 10, 2);
+
+        assertNull(product.getSupplierId());
+    }
+
+    @Test
+    @DisplayName("Should allow setting and clearing supplier ID")
+    void shouldAllowSettingAndClearingSupplierId() {
+        Product product = new Product("SKU-MOD", "Headphones", new BigDecimal("59.99"), 10, 2);
+
+        product.setSupplierId(100L);
+        assertEquals(100L, product.getSupplierId());
+
+        product.setSupplierId(null);
+        assertNull(product.getSupplierId());
+    }
+
+    @Test
+    @DisplayName("Should reject zero or negative supplier ID")
+    void shouldRejectInvalidSupplierId() {
+        Product product = new Product("SKU-VAL", "Headphones", new BigDecimal("59.99"), 10, 2);
+
+        assertThrows(IllegalArgumentException.class, () -> product.setSupplierId(0L));
+        assertThrows(IllegalArgumentException.class, () -> product.setSupplierId(-5L));
+    }
+
+    @Test
+    @DisplayName("Should include supplierId in toString output")
+    void shouldIncludeSupplierIdInToString() {
+        Product product = new Product("SKU-STR", "Item", new BigDecimal("10.00"), 5, 1, 42L);
+
+        String str = product.toString();
+        assertTrue(str.contains("supplierId=42"));
+    }
 }

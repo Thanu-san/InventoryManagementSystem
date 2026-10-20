@@ -26,7 +26,7 @@ import java.util.Optional;
 public class JdbcProductRepository implements ProductRepository {
 
     private static final String INSERT_SQL =
-            "INSERT INTO products (sku, name, price, quantity, minimum_stock) VALUES (?, ?, ?, ?, ?)";
+            "INSERT INTO products (sku, name, price, quantity, minimum_stock, supplier_id) VALUES (?, ?, ?, ?, ?, ?)";
 
     @Override
     public Product save(Product product) {
@@ -45,6 +45,11 @@ public class JdbcProductRepository implements ProductRepository {
             statement.setBigDecimal(3, product.getPrice());
             statement.setInt(4, product.getQuantity());
             statement.setInt(5, product.getMinimumStock());
+            if (product.getSupplierId() != null) {
+                statement.setLong(6, product.getSupplierId());
+            } else {
+                statement.setNull(6, java.sql.Types.BIGINT);
+            }
 
             statement.executeUpdate();
 
@@ -62,12 +67,15 @@ public class JdbcProductRepository implements ProductRepository {
             if ("23505".equals(e.getSQLState())) {
                 throw new ValidationException("Product with SKU '" + product.getSku().trim() + "' already exists.", e);
             }
+            if ("23503".equals(e.getSQLState())) {
+                throw new ValidationException("Supplier not found with ID: " + product.getSupplierId(), e);
+            }
             throw new DatabaseException("Database error while saving product: " + e.getMessage(), e);
         }
     }
 
     private static final String SELECT_BY_SKU_SQL =
-            "SELECT id, sku, name, price, quantity, minimum_stock FROM products WHERE sku = ?";
+            "SELECT id, sku, name, price, quantity, minimum_stock, supplier_id FROM products WHERE sku = ?";
 
     @Override
     public Optional<Product> findBySku(String sku) {
@@ -92,13 +100,15 @@ public class JdbcProductRepository implements ProductRepository {
     }
 
     private Product mapRowToProduct(ResultSet rs) throws SQLException {
+        Long supplierId = rs.getObject("supplier_id") != null ? rs.getLong("supplier_id") : null;
         return new Product(
                 rs.getLong("id"),
                 rs.getString("sku"),
                 rs.getString("name"),
                 rs.getBigDecimal("price"),
                 rs.getInt("quantity"),
-                rs.getInt("minimum_stock")
+                rs.getInt("minimum_stock"),
+                supplierId
         );
     }
 
@@ -127,7 +137,7 @@ public class JdbcProductRepository implements ProductRepository {
     }
 
     private static final String SELECT_ALL_SQL =
-            "SELECT id, sku, name, price, quantity, minimum_stock FROM products ORDER BY id";
+            "SELECT id, sku, name, price, quantity, minimum_stock, supplier_id FROM products ORDER BY id";
 
     @Override
     public List<Product> findAll() {
@@ -147,7 +157,7 @@ public class JdbcProductRepository implements ProductRepository {
     }
 
     private static final String SELECT_LOW_STOCK_SQL =
-            "SELECT id, sku, name, price, quantity, minimum_stock FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC, sku ASC";
+            "SELECT id, sku, name, price, quantity, minimum_stock, supplier_id FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC, sku ASC";
 
     @Override
     public List<Product> findLowStockProducts() {
@@ -195,7 +205,7 @@ public class JdbcProductRepository implements ProductRepository {
     }
 
     private static final String SEARCH_BY_NAME_SQL =
-            "SELECT id, sku, name, price, quantity, minimum_stock FROM products " +
+            "SELECT id, sku, name, price, quantity, minimum_stock, supplier_id FROM products " +
             "WHERE name ILIKE ? ESCAPE '!' ORDER BY sku ASC";
 
     private String escapeLikePattern(String text) {
@@ -284,10 +294,10 @@ public class JdbcProductRepository implements ProductRepository {
 
         String sql;
         if (sortField == SortField.SKU) {
-            sql = "SELECT id, sku, name, price, quantity, minimum_stock FROM products " +
+            sql = "SELECT id, sku, name, price, quantity, minimum_stock, supplier_id FROM products " +
                   "ORDER BY sku " + dirSql + " LIMIT ? OFFSET ?";
         } else {
-            sql = "SELECT id, sku, name, price, quantity, minimum_stock FROM products " +
+            sql = "SELECT id, sku, name, price, quantity, minimum_stock, supplier_id FROM products " +
                   "ORDER BY " + colName + " " + dirSql + ", sku ASC LIMIT ? OFFSET ?";
         }
 
@@ -332,6 +342,58 @@ public class JdbcProductRepository implements ProductRepository {
         }
     }
 
+    private static final String UPDATE_SUPPLIER_SQL =
+            "UPDATE products SET supplier_id = ? WHERE sku = ?";
+
+    @Override
+    public boolean updateSupplier(String sku, Long supplierId) {
+        if (sku == null || sku.isBlank()) {
+            return false;
+        }
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(UPDATE_SUPPLIER_SQL)) {
+
+            if (supplierId != null) {
+                statement.setLong(1, supplierId);
+            } else {
+                statement.setNull(1, java.sql.Types.BIGINT);
+            }
+            statement.setString(2, sku.trim());
+
+            int rowsAffected = statement.executeUpdate();
+            return rowsAffected > 0;
+        } catch (SQLException e) {
+            if ("23503".equals(e.getSQLState())) {
+                throw new ValidationException("Supplier not found with ID: " + supplierId, e);
+            }
+            throw new DatabaseException("Database error while updating supplier for product: " + e.getMessage(), e);
+        }
+    }
+
+    private static final String EXISTS_BY_SUPPLIER_ID_SQL =
+            "SELECT EXISTS (SELECT 1 FROM products WHERE supplier_id = ?)";
+
+    @Override
+    public boolean existsBySupplierId(Long supplierId) {
+        if (supplierId == null) {
+            return false;
+        }
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(EXISTS_BY_SUPPLIER_ID_SQL)) {
+
+            statement.setLong(1, supplierId);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getBoolean(1);
+                }
+                return false;
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Database error while checking if products exist for supplier ID: " + e.getMessage(), e);
+        }
+    }
+
     private static final String DELETE_BY_SKU_SQL =
             "DELETE FROM products WHERE sku = ?";
 
@@ -348,7 +410,7 @@ public class JdbcProductRepository implements ProductRepository {
             int rowsAffected = statement.executeUpdate();
             return rowsAffected > 0;
         } catch (SQLException e) {
-            if ("23503".equals(e.getSQLState())) {
+            if ("23503".equals(e.getSQLState()) || "23001".equals(e.getSQLState())) {
                 throw new ValidationException(
                         "Cannot delete product '" + sku.trim() + "' because it has associated transaction records.", e);
             }

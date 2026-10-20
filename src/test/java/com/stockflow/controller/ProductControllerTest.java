@@ -2,8 +2,10 @@ package com.stockflow.controller;
 
 import com.stockflow.exception.DatabaseException;
 import com.stockflow.model.Product;
+import com.stockflow.model.Supplier;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.InMemorySupplierRepository;
 import com.stockflow.repository.ProductRepository;
 import com.stockflow.service.ProductService;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +26,7 @@ class ProductControllerTest {
 
     private InMemoryProductRepository productRepository;
     private InMemoryInventoryTransactionRepository transactionRepository;
+    private InMemorySupplierRepository supplierRepository;
     private ProductService productService;
     private ByteArrayOutputStream outputCapture;
 
@@ -31,7 +34,8 @@ class ProductControllerTest {
     void setUp() {
         productRepository = new InMemoryProductRepository();
         transactionRepository = new InMemoryInventoryTransactionRepository(productRepository);
-        productService = new ProductService(productRepository, transactionRepository);
+        supplierRepository = new InMemorySupplierRepository();
+        productService = new ProductService(productRepository, transactionRepository, supplierRepository);
         outputCapture = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outputCapture, true, StandardCharsets.UTF_8));
     }
@@ -48,7 +52,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("Should retry when entering invalid price then negative price until valid price entered on Add Product")
     void shouldRetryWhenEnteringInvalidPriceThenValidPriceOnAddProduct() {
-        // Menu choice: 1 (Add Product), then 14 (Exit)
+        // Menu choice: 1 (Add Product), then 16 (Exit)
         // SKU: "KB-01", Name: "Keychron", Price: "not-a-number" -> "-5.00" -> "89.99", Qty: "10", MinStock: "2"
         String input = String.join("\n",
                 "1",
@@ -59,7 +63,7 @@ class ProductControllerTest {
                 "89.99",
                 "10",
                 "2",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -93,7 +97,7 @@ class ProductControllerTest {
                 "-3",
                 "15",
                 "3",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -121,7 +125,7 @@ class ProductControllerTest {
                 "19.99",
                 "50",
                 "5",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -145,7 +149,7 @@ class ProductControllerTest {
                 "199.99",
                 "2",
                 "1",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -160,7 +164,7 @@ class ProductControllerTest {
     void shouldRetryOnInvalidStockInQuantity() {
         productRepository.save(new Product("STOCK-IN-SKU", "Monitor", new BigDecimal("250.00"), 5, 2));
 
-        // Option 6 (Stock In): SKU "STOCK-IN-SKU", Qty: "abc" -> "0" -> "-5" -> "10", then 14
+        // Option 6 (Stock In): SKU "STOCK-IN-SKU", Qty: "abc" -> "0" -> "-5" -> "10", then 16
         String input = String.join("\n",
                 "6",
                 "STOCK-IN-SKU",
@@ -168,7 +172,7 @@ class ProductControllerTest {
                 "0",
                 "-5",
                 "10",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -188,12 +192,12 @@ class ProductControllerTest {
     void shouldHandleInsufficientStockGracefullyWithoutCrashing() {
         productRepository.save(new Product("STOCK-OUT-SKU", "Chair", new BigDecimal("120.00"), 3, 1));
 
-        // Option 7 (Stock Out): SKU "STOCK-OUT-SKU", Qty: "10" (exceeds 3), then 14
+        // Option 7 (Stock Out): SKU "STOCK-OUT-SKU", Qty: "10" (exceeds 3), then 16
         String input = String.join("\n",
                 "7",
                 "STOCK-OUT-SKU",
                 "10",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -212,7 +216,7 @@ class ProductControllerTest {
         String input = String.join("\n",
                 "99",
                 "invalid-choice",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -233,7 +237,7 @@ class ProductControllerTest {
         // Direction: "9" (invalid) -> "1" (ASC)
         // Page size: "-2" (invalid) -> "abc" (invalid) -> "5" (valid)
         // Navigation: "B" (Back)
-        // Exit menu: 14
+        // Exit menu: 16
         String input = String.join("\n",
                 "13",
                 "9",
@@ -244,7 +248,7 @@ class ProductControllerTest {
                 "abc",
                 "5",
                 "B",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -272,7 +276,7 @@ class ProductControllerTest {
                 "bad-price",
                 "75.00",
                 "4",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -303,7 +307,7 @@ class ProductControllerTest {
                 "5",
                 "DEL-SKU",
                 "y",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = createController(input);
@@ -332,7 +336,7 @@ class ProductControllerTest {
         String input = String.join("\n",
                 "3",
                 "FAIL-SKU",
-                "14"
+                "16"
         ) + "\n";
 
         ProductController controller = new ProductController(failingService, new Scanner(input));
@@ -340,5 +344,99 @@ class ProductControllerTest {
 
         String output = getConsoleOutput();
         assertTrue(output.contains("Database Error: Simulated connection timeout to database"));
+    }
+
+    @Test
+    @DisplayName("Should assign supplier to product via menu option 14")
+    void shouldAssignSupplierViaMenuOption14() {
+        productRepository.save(new Product("ASSIGN-SKU", "Wireless Earbuds", new BigDecimal("49.99"), 20, 5));
+        supplierRepository.save(new Supplier("SUP-AUDIO", "AudioTech Inc", "Alice", "555-1111", "alice@audiotech.com", "Tokyo"));
+
+        String input = String.join("\n",
+                "14",
+                "ASSIGN-SKU",
+                "SUP-AUDIO",
+                "16"
+        ) + "\n";
+
+        ProductController controller = createController(input);
+        controller.runMenu();
+
+        Product updated = productRepository.findBySku("ASSIGN-SKU").orElseThrow();
+        assertNotNull(updated.getSupplierId());
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Success: Supplier 'SUP-AUDIO' (AudioTech Inc) assigned to product 'ASSIGN-SKU' successfully!"));
+    }
+
+    @Test
+    @DisplayName("Should remove supplier from product via menu option 15 with confirmation")
+    void shouldRemoveSupplierViaMenuOption15WithConfirmation() {
+        Supplier s = supplierRepository.save(new Supplier("SUP-REMOVE", "RemoveTech", null, null, null, null));
+        Product p = new Product("REMOVE-SKU", "Device", new BigDecimal("99.00"), 10, 2);
+        p.setSupplierId(s.getId());
+        productRepository.save(p);
+
+        String input = String.join("\n",
+                "15",
+                "REMOVE-SKU",
+                "y",
+                "16"
+        ) + "\n";
+
+        ProductController controller = createController(input);
+        controller.runMenu();
+
+        Product updated = productRepository.findBySku("REMOVE-SKU").orElseThrow();
+        assertNull(updated.getSupplierId());
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Success: Supplier assignment removed from product 'REMOVE-SKU' successfully."));
+    }
+
+    @Test
+    @DisplayName("Should cancel supplier removal when entering 'n'")
+    void shouldCancelSupplierRemovalWhenEnteringN() {
+        Supplier s = supplierRepository.save(new Supplier("SUP-KEEP", "KeepTech", null, null, null, null));
+        Product p = new Product("KEEP-SKU", "Device", new BigDecimal("99.00"), 10, 2);
+        p.setSupplierId(s.getId());
+        productRepository.save(p);
+
+        String input = String.join("\n",
+                "15",
+                "KEEP-SKU",
+                "n",
+                "16"
+        ) + "\n";
+
+        ProductController controller = createController(input);
+        controller.runMenu();
+
+        Product updated = productRepository.findBySku("KEEP-SKU").orElseThrow();
+        assertEquals(s.getId(), updated.getSupplierId(), "Supplier ID should remain assigned");
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Removal cancelled."));
+    }
+
+    @Test
+    @DisplayName("Should display assigned supplier when finding product by SKU via menu option 3")
+    void shouldDisplayAssignedSupplierWhenFindingProductBySku() {
+        Supplier s = supplierRepository.save(new Supplier("SUP-FIND", "FindSupplier", null, null, null, null));
+        Product p = new Product("FIND-SKU", "Widget", new BigDecimal("10.00"), 5, 1);
+        p.setSupplierId(s.getId());
+        productRepository.save(p);
+
+        String input = String.join("\n",
+                "3",
+                "FIND-SKU",
+                "16"
+        ) + "\n";
+
+        ProductController controller = createController(input);
+        controller.runMenu();
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Assigned Supplier: [SUP-FIND] FindSupplier"));
     }
 }

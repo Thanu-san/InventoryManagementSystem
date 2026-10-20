@@ -2,6 +2,7 @@ package com.stockflow.repository;
 
 import com.stockflow.database.DatabaseConnection;
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.Product;
 import com.stockflow.model.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,7 @@ class JdbcSupplierRepositoryTest {
     private String testCode;
     private String testCode2;
     private final List<String> extraTestCodes = new ArrayList<>();
+    private final List<String> extraTestSkus = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -32,8 +34,9 @@ class JdbcSupplierRepositoryTest {
         testCode = "TSUP-" + System.currentTimeMillis();
         testCode2 = "TSUP-2-" + System.currentTimeMillis();
         extraTestCodes.clear();
+        extraTestSkus.clear();
 
-        // Ensure the suppliers table exists
+        // Ensure the suppliers table and products.supplier_id foreign key exist
         try (Connection connection = DatabaseConnection.getConnection();
              Statement stmt = connection.createStatement()) {
             stmt.execute("""
@@ -45,16 +48,27 @@ class JdbcSupplierRepositoryTest {
                     phone           VARCHAR(50),
                     email           VARCHAR(255),
                     address         VARCHAR(500)
-                )
+                );
+                ALTER TABLE products 
+                ADD COLUMN IF NOT EXISTS supplier_id BIGINT REFERENCES suppliers(id) ON DELETE RESTRICT;
             """);
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to ensure suppliers table exists for tests", e);
+            throw new RuntimeException("Failed to ensure suppliers table and relationships exist for tests", e);
         }
     }
 
     @AfterEach
     void tearDown() {
         try (Connection connection = DatabaseConnection.getConnection()) {
+            // Delete any test products first to respect foreign key constraint
+            for (String sku : extraTestSkus) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM products WHERE sku = ?")) {
+                    statement.setString(1, sku);
+                    statement.executeUpdate();
+                } catch (SQLException ignored) {
+                }
+            }
             for (String code : extraTestCodes) {
                 try (PreparedStatement statement = connection.prepareStatement(
                         "DELETE FROM suppliers WHERE supplier_code = ?")) {
@@ -315,5 +329,55 @@ class JdbcSupplierRepositoryTest {
         assertTrue(found.isPresent());
         assertEquals("Persist Test", found.get().getName());
         assertEquals("Contact", found.get().getContactName());
+    }
+
+    @Test
+    @DisplayName("Should find existing supplier by ID in PostgreSQL")
+    void shouldFindExistingSupplierByIdInPostgreSql() {
+        Supplier saved = repository.save(new Supplier(testCode, "Find ID Supplier", "Contact", "555", "id@test.com", "City"));
+
+        Optional<Supplier> found = repository.findById(saved.getId());
+
+        assertTrue(found.isPresent());
+        assertEquals(saved.getId(), found.get().getId());
+        assertEquals(testCode, found.get().getSupplierCode());
+        assertEquals("Find ID Supplier", found.get().getName());
+    }
+
+    @Test
+    @DisplayName("Should return empty Optional when finding by nonexistent, null, or negative ID in PostgreSQL")
+    void shouldReturnEmptyForNonexistentIdInPostgreSql() {
+        assertTrue(repository.findById(999_999_999L).isEmpty());
+        assertTrue(repository.findById(null).isEmpty());
+        assertTrue(repository.findById(-1L).isEmpty());
+        assertTrue(repository.findById(0L).isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should prevent deleting supplier when referenced by a product via foreign key in PostgreSQL")
+    void shouldPreventDeletingSupplierWhenReferencedByProductInPostgreSql() {
+        Supplier supplier = repository.save(new Supplier(testCode, "Referenced Supplier", null, null, null, null));
+        String productSku = "PROD-FK-" + System.currentTimeMillis();
+        extraTestSkus.add(productSku);
+
+        // Insert product referencing this supplier
+        JdbcProductRepository productRepo = new JdbcProductRepository();
+        Product product = new Product(productSku, "FK Product", new java.math.BigDecimal("19.99"), 10, 2, supplier.getId());
+        productRepo.save(product);
+
+        // Deleting the supplier must fail with ValidationException (due to foreign key RESTRICT)
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                repository.deleteBySupplierCode(testCode));
+        assertTrue(ex.getMessage().contains("currently assigned to one or more products"));
+
+        // Supplier must still exist in PostgreSQL
+        assertTrue(repository.existsBySupplierCode(testCode));
+
+        // Clear assignment from product
+        productRepo.updateSupplier(productSku, null);
+
+        // Deleting supplier should now succeed
+        assertTrue(repository.deleteBySupplierCode(testCode));
+        assertFalse(repository.existsBySupplierCode(testCode));
     }
 }

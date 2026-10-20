@@ -45,13 +45,24 @@ class JdbcInventoryTransactionRepositoryTest {
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement()) {
             stmt.execute("""
+                CREATE TABLE IF NOT EXISTS suppliers (
+                    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    supplier_code   VARCHAR(50)  NOT NULL UNIQUE,
+                    name            VARCHAR(255) NOT NULL,
+                    contact_name    VARCHAR(255),
+                    phone           VARCHAR(50),
+                    email           VARCHAR(255),
+                    address         VARCHAR(500)
+                );
+                ALTER TABLE products 
+                ADD COLUMN IF NOT EXISTS supplier_id BIGINT REFERENCES suppliers(id) ON DELETE RESTRICT;
                 CREATE TABLE IF NOT EXISTS inventory_transactions (
                     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     product_id BIGINT NOT NULL REFERENCES products(id),
                     type VARCHAR(10) NOT NULL CHECK (type IN ('STOCK_IN', 'STOCK_OUT')),
                     quantity INTEGER NOT NULL CHECK (quantity > 0),
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
+                );
             """);
         }
     }

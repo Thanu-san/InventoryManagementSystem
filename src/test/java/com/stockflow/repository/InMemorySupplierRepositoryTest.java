@@ -91,6 +91,23 @@ class InMemorySupplierRepositoryTest {
         assertTrue(repository.findBySupplierCode(null).isEmpty());
     }
 
+    @Test
+    @DisplayName("Should find supplier by ID")
+    void shouldFindSupplierById() {
+        Supplier saved = repository.save(new Supplier("SUP-ID-FIND", "Find By ID", null, null, null, null));
+        Optional<Supplier> found = repository.findById(saved.getId());
+
+        assertTrue(found.isPresent());
+        assertEquals("SUP-ID-FIND", found.get().getSupplierCode());
+    }
+
+    @Test
+    @DisplayName("Should return empty when finding by nonexistent ID or null")
+    void shouldReturnEmptyWhenFindingByNonexistentIdOrNull() {
+        assertTrue(repository.findById(99999L).isEmpty());
+        assertTrue(repository.findById(null).isEmpty());
+    }
+
     // --- Exists ---
 
     @Test

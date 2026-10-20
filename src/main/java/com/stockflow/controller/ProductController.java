@@ -10,6 +10,7 @@ import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
 import com.stockflow.model.SortDirection;
 import com.stockflow.model.SortField;
+import com.stockflow.model.Supplier;
 import com.stockflow.service.ProductService;
 
 import java.math.BigDecimal;
@@ -52,7 +53,9 @@ public class ProductController {
             System.out.println("11. Inventory Valuation Report");
             System.out.println("12. Search Products by Name");
             System.out.println("13. Browse Products (Paged & Sorted)");
-            System.out.println("14. Back to Main Menu");
+            System.out.println("14. Assign / Change Supplier");
+            System.out.println("15. Remove Supplier");
+            System.out.println("16. Back to Main Menu");
             System.out.print("Select an option: ");
 
             if (!scanner.hasNextLine()) {
@@ -73,7 +76,9 @@ public class ProductController {
                 case "11" -> handleInventoryValuationReport();
                 case "12" -> handleSearchProductsByName();
                 case "13" -> handleBrowseProducts();
-                case "14" -> back = true;
+                case "14" -> handleAssignSupplier();
+                case "15" -> handleRemoveSupplier();
+                case "16" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -172,6 +177,13 @@ public class ProductController {
                 System.out.printf("Price: $%.2f%n", p.getPrice());
                 System.out.println("Quantity: " + p.getQuantity());
                 System.out.println("Minimum Stock: " + p.getMinimumStock());
+                Optional<Supplier> supplierOpt = productService.getSupplierForProduct(p.getSku());
+                if (supplierOpt.isPresent()) {
+                    Supplier s = supplierOpt.get();
+                    System.out.println("Assigned Supplier: [" + s.getSupplierCode() + "] " + s.getName());
+                } else {
+                    System.out.println("Assigned Supplier: None");
+                }
                 System.out.println("-------------------------");
             } else {
                 System.out.println("Product not found with SKU: " + sku);
@@ -666,6 +678,82 @@ public class ProductController {
                 System.out.println("Error: " + e.getMessage());
                 browsing = false;
             }
+        }
+    }
+
+    private void handleAssignSupplier() {
+        System.out.println("\n[ Assign / Change Supplier ]");
+        Optional<String> skuOpt = promptNonBlankString("Enter Product SKU: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
+
+        Optional<String> codeOpt = promptNonBlankString("Enter Supplier Code: ", "Supplier code");
+        if (codeOpt.isEmpty()) {
+            return;
+        }
+
+        try {
+            Product updated = productService.assignSupplier(skuOpt.get(), codeOpt.get());
+            Optional<Supplier> sOpt = productService.getSupplierForProduct(updated.getSku());
+            String supplierName = sOpt.map(Supplier::getName).orElse(codeOpt.get());
+            System.out.println("Success: Supplier '" + codeOpt.get() + "' (" + supplierName + ") assigned to product '" + updated.getSku() + "' successfully!");
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleRemoveSupplier() {
+        System.out.println("\n[ Remove Supplier ]");
+        Optional<String> skuOpt = promptNonBlankString("Enter Product SKU: ", "Product SKU");
+        if (skuOpt.isEmpty()) {
+            return;
+        }
+
+        String sku = skuOpt.get();
+        try {
+            Optional<Product> prodOpt = productService.findProductBySku(sku);
+            if (prodOpt.isEmpty()) {
+                System.out.println("Product not found with SKU: " + sku);
+                return;
+            }
+            Product p = prodOpt.get();
+            if (p.getSupplierId() == null) {
+                System.out.println("Product '" + sku + "' currently has no assigned supplier.");
+                return;
+            }
+
+            Optional<Supplier> currentSupplier = productService.getSupplierForProduct(sku);
+            String currentDisplay = currentSupplier.map(s -> "[" + s.getSupplierCode() + "] " + s.getName()).orElse("ID: " + p.getSupplierId());
+            System.out.println("Current Assigned Supplier: " + currentDisplay);
+
+            while (true) {
+                System.out.print("Are you sure you want to remove this supplier assignment? (y/n): ");
+                if (!scanner.hasNextLine()) {
+                    break;
+                }
+                String confirm = scanner.nextLine().trim();
+                if (confirm.equalsIgnoreCase("y")) {
+                    productService.removeSupplier(sku);
+                    System.out.println("Success: Supplier assignment removed from product '" + sku + "' successfully.");
+                    break;
+                } else if (confirm.equalsIgnoreCase("n")) {
+                    System.out.println("Removal cancelled.");
+                    break;
+                } else {
+                    System.out.println("Please enter Y or N.");
+                }
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
         }
     }
 

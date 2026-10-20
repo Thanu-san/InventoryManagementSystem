@@ -62,6 +62,31 @@ public class JdbcSupplierRepository implements SupplierRepository {
         }
     }
 
+    private static final String SELECT_BY_ID_SQL =
+            "SELECT id, supplier_code, name, contact_name, phone, email, address FROM suppliers WHERE id = ?";
+
+    @Override
+    public Optional<Supplier> findById(Long id) {
+        if (id == null || id <= 0) {
+            return Optional.empty();
+        }
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SELECT_BY_ID_SQL)) {
+
+            statement.setLong(1, id);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    Supplier supplier = mapRowToSupplier(resultSet);
+                    return Optional.of(supplier);
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Database error while finding supplier by ID: " + e.getMessage(), e);
+        }
+    }
+
     private static final String SELECT_BY_CODE_SQL =
             "SELECT id, supplier_code, name, contact_name, phone, email, address FROM suppliers WHERE supplier_code = ?";
 
@@ -184,6 +209,10 @@ public class JdbcSupplierRepository implements SupplierRepository {
             int rowsAffected = statement.executeUpdate();
             return rowsAffected > 0;
         } catch (SQLException e) {
+            if ("23503".equals(e.getSQLState()) || "23001".equals(e.getSQLState())) {
+                throw new ValidationException(
+                        "Cannot delete supplier '" + supplierCode.trim() + "' because it is currently assigned to one or more products.", e);
+            }
             throw new DatabaseException("Database error while deleting supplier by code: " + e.getMessage(), e);
         }
     }

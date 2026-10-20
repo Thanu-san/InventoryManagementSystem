@@ -86,4 +86,22 @@ public interface ProductRepository {
      * @return total product count
      */
     long count();
+
+    /**
+     * Updates the assigned supplier for a product identified by SKU.
+     * Pass null to remove/clear the supplier assignment.
+     *
+     * @param sku product SKU
+     * @param supplierId supplier ID to assign, or null to clear
+     * @return true if product was found and updated, false otherwise
+     */
+    boolean updateSupplier(String sku, Long supplierId);
+
+    /**
+     * Checks if any product is currently assigned to the given supplier ID.
+     *
+     * @param supplierId supplier ID to check
+     * @return true if at least one product references this supplier, false otherwise
+     */
+    boolean existsBySupplierId(Long supplierId);
 }

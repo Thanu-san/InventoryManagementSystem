@@ -477,4 +477,83 @@ class InMemoryProductRepositoryTest {
         assertTrue(result.getContent().isEmpty());
         assertEquals(1L, result.getTotalElements());
     }
+
+    @Test
+    @DisplayName("Should save and retrieve product with supplier ID")
+    void shouldSaveAndRetrieveProductWithSupplierId() {
+        Product product = new Product("SKU-SUP", "Item With Supplier", new BigDecimal("19.99"), 5, 1, 99L);
+        repository.save(product);
+
+        Product retrieved = repository.findBySku("SKU-SUP").orElseThrow();
+        assertEquals(99L, retrieved.getSupplierId());
+    }
+
+    @Test
+    @DisplayName("Should update supplier ID for existing product")
+    void shouldUpdateSupplierIdForExistingProduct() {
+        Product product = new Product("SKU-CHG", "Item", new BigDecimal("19.99"), 5, 1);
+        repository.save(product);
+        assertNull(product.getSupplierId());
+
+        boolean updated = repository.updateSupplier("SKU-CHG", 123L);
+        assertTrue(updated);
+
+        Product retrieved = repository.findBySku("SKU-CHG").orElseThrow();
+        assertEquals(123L, retrieved.getSupplierId());
+
+        // Clear supplier
+        boolean cleared = repository.updateSupplier("SKU-CHG", null);
+        assertTrue(cleared);
+        assertNull(repository.findBySku("SKU-CHG").orElseThrow().getSupplierId());
+    }
+
+    @Test
+    @DisplayName("Should return false when updating supplier for nonexistent SKU or null")
+    void shouldReturnFalseWhenUpdatingSupplierForNonexistentSku() {
+        assertFalse(repository.updateSupplier("NON-EXIST", 10L));
+        assertFalse(repository.updateSupplier(null, 10L));
+    }
+
+    @Test
+    @DisplayName("Should check existence by supplier ID accurately")
+    void shouldCheckExistenceBySupplierIdAccurately() {
+        assertFalse(repository.existsBySupplierId(55L));
+        assertFalse(repository.existsBySupplierId(null));
+
+        repository.save(new Product("SKU-S1", "Item 1", new BigDecimal("10.00"), 5, 1, 55L));
+        assertTrue(repository.existsBySupplierId(55L));
+
+        repository.save(new Product("SKU-S2", "Item 2", new BigDecimal("20.00"), 10, 2, 55L));
+        assertTrue(repository.existsBySupplierId(55L));
+        assertFalse(repository.existsBySupplierId(99L));
+    }
+
+    @Test
+    @DisplayName("Should preserve supplier ID when updating unrelated product fields")
+    void shouldPreserveSupplierIdWhenUpdatingUnrelatedFields() {
+        Product product = new Product("SKU-PRESERV", "Original Name", new BigDecimal("10.00"), 5, 1, 77L);
+        repository.save(product);
+
+        Product toUpdate = new Product("SKU-PRESERV", "New Name", new BigDecimal("25.00"), 5, 3);
+        repository.update(toUpdate);
+
+        Product retrieved = repository.findBySku("SKU-PRESERV").orElseThrow();
+        assertEquals("New Name", retrieved.getName());
+        assertEquals(new BigDecimal("25.00"), retrieved.getPrice());
+        assertEquals(3, retrieved.getMinimumStock());
+        assertEquals(77L, retrieved.getSupplierId(), "Supplier ID must be preserved");
+    }
+
+    @Test
+    @DisplayName("Should preserve supplier ID when updating quantity")
+    void shouldPreserveSupplierIdWhenUpdatingQuantity() {
+        Product product = new Product("SKU-QTY", "Item", new BigDecimal("10.00"), 5, 1, 88L);
+        repository.save(product);
+
+        repository.updateQuantity(product.getId(), 25);
+
+        Product retrieved = repository.findBySku("SKU-QTY").orElseThrow();
+        assertEquals(25, retrieved.getQuantity());
+        assertEquals(88L, retrieved.getSupplierId(), "Supplier ID must be preserved during quantity update");
+    }
 }

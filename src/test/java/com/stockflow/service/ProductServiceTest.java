@@ -12,9 +12,14 @@ import com.stockflow.model.SortField;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.InMemorySupplierRepository;
+import com.stockflow.repository.InventoryTransactionRepository;
 import com.stockflow.repository.JdbcInventoryTransactionRepository;
 import com.stockflow.repository.JdbcProductRepository;
+import com.stockflow.repository.JdbcSupplierRepository;
 import com.stockflow.repository.ProductRepository;
+import com.stockflow.repository.SupplierRepository;
+import com.stockflow.model.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,12 +34,18 @@ import static org.junit.jupiter.api.Assertions.*;
 class ProductServiceTest {
 
     private ProductRepository productRepository;
+    private SupplierRepository supplierRepository;
     private ProductService productService;
 
     @BeforeEach
     void setUp() {
         productRepository = new InMemoryProductRepository();
-        productService = new ProductService(productRepository);
+        supplierRepository = new InMemorySupplierRepository();
+        productService = new ProductService(
+                productRepository,
+                new InMemoryInventoryTransactionRepository((InMemoryProductRepository) productRepository),
+                supplierRepository
+        );
     }
 
     @Test
@@ -1013,5 +1024,212 @@ class ProductServiceTest {
 
         // Verify product is still present
         assertTrue(productService.findProductBySku("DEL-PROT").isPresent());
+    }
+
+    // --- Phase 12: Connect Suppliers to Products Tests ---
+
+    @Test
+    @DisplayName("Should assign a valid supplier to a valid product successfully")
+    void shouldAssignValidSupplierToProductSuccessfully() {
+        productService.createProduct("SKU-REL-1", "Product One", new BigDecimal("29.99"), 15, 3);
+        supplierRepository.save(new Supplier("SUP-REL-1", "Supplier One", "Bob", "555-1234", "bob@sup1.com", "City"));
+
+        Product updated = productService.assignSupplier("SKU-REL-1", "SUP-REL-1");
+
+        assertNotNull(updated.getSupplierId());
+        Optional<Supplier> assignedSupplier = productService.getSupplierForProduct("SKU-REL-1");
+        assertTrue(assignedSupplier.isPresent());
+        assertEquals("SUP-REL-1", assignedSupplier.get().getSupplierCode());
+        assertEquals("Supplier One", assignedSupplier.get().getName());
+    }
+
+    @Test
+    @DisplayName("Should change an assigned supplier to another existing supplier")
+    void shouldChangeAssignedSupplierSuccessfully() {
+        productService.createProduct("SKU-REL-2", "Product Two", new BigDecimal("49.99"), 20, 5);
+        supplierRepository.save(new Supplier("SUP-OLD", "Old Supplier", null, null, null, null));
+        supplierRepository.save(new Supplier("SUP-NEW", "New Supplier", null, null, null, null));
+
+        productService.assignSupplier("SKU-REL-2", "SUP-OLD");
+        assertEquals("SUP-OLD", productService.getSupplierForProduct("SKU-REL-2").orElseThrow().getSupplierCode());
+
+        Product updated = productService.assignSupplier("SKU-REL-2", "SUP-NEW");
+        assertEquals("SUP-NEW", productService.getSupplierForProduct("SKU-REL-2").orElseThrow().getSupplierCode());
+    }
+
+    @Test
+    @DisplayName("Should remove supplier assignment from a product successfully")
+    void shouldRemoveSupplierAssignmentSuccessfully() {
+        productService.createProduct("SKU-REL-3", "Product Three", new BigDecimal("10.00"), 5, 1);
+        supplierRepository.save(new Supplier("SUP-DEL-REL", "Supplier Three", null, null, null, null));
+
+        productService.assignSupplier("SKU-REL-3", "SUP-DEL-REL");
+        assertTrue(productService.getSupplierForProduct("SKU-REL-3").isPresent());
+
+        Product updated = productService.removeSupplier("SKU-REL-3");
+        assertNull(updated.getSupplierId());
+        assertTrue(productService.getSupplierForProduct("SKU-REL-3").isEmpty());
+
+        // Removing again should be safe and idempotent
+        Product updatedAgain = productService.removeSupplier("SKU-REL-3");
+        assertNull(updatedAgain.getSupplierId());
+    }
+
+    @Test
+    @DisplayName("Should reject assignment when product does not exist")
+    void shouldRejectAssignmentWhenProductDoesNotExist() {
+        supplierRepository.save(new Supplier("SUP-EXISTS", "Supplier", null, null, null, null));
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.assignSupplier("NON-EXISTENT-SKU", "SUP-EXISTS"));
+        assertTrue(ex.getMessage().contains("Product not found with SKU: NON-EXISTENT-SKU"));
+    }
+
+    @Test
+    @DisplayName("Should reject assignment when supplier does not exist")
+    void shouldRejectAssignmentWhenSupplierDoesNotExist() {
+        productService.createProduct("SKU-EXISTS", "Product", new BigDecimal("15.00"), 10, 2);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.assignSupplier("SKU-EXISTS", "NON-EXISTENT-SUP"));
+        assertTrue(ex.getMessage().contains("Supplier not found with code: NON-EXISTENT-SUP"));
+    }
+
+    @Test
+    @DisplayName("Should preserve previous supplier when new assignment fails")
+    void shouldPreservePreviousSupplierWhenAssignmentFails() {
+        productService.createProduct("SKU-PRESERV-SUP", "Product", new BigDecimal("25.00"), 10, 2);
+        supplierRepository.save(new Supplier("SUP-SAFE", "Safe Supplier", null, null, null, null));
+
+        productService.assignSupplier("SKU-PRESERV-SUP", "SUP-SAFE");
+        Long originalSupplierId = productService.findProductBySku("SKU-PRESERV-SUP").orElseThrow().getSupplierId();
+
+        // Attempt invalid assignment with non-existent supplier
+        assertThrows(ValidationException.class, () ->
+                productService.assignSupplier("SKU-PRESERV-SUP", "UNKNOWN-SUP"));
+
+        // Verify original supplier remains intact
+        Product product = productService.findProductBySku("SKU-PRESERV-SUP").orElseThrow();
+        assertEquals(originalSupplierId, product.getSupplierId());
+        assertEquals("SUP-SAFE", productService.getSupplierForProduct("SKU-PRESERV-SUP").orElseThrow().getSupplierCode());
+    }
+
+    @Test
+    @DisplayName("Should verify supplier assignment does not change quantity, price, or minimum stock")
+    void shouldNotMutateProductFieldsDuringSupplierAssignment() {
+        productService.createProduct("SKU-INVARIANT", "Invariant Product", new BigDecimal("88.50"), 45, 7);
+        supplierRepository.save(new Supplier("SUP-INV", "Invariant Supplier", null, null, null, null));
+
+        Product updated = productService.assignSupplier("SKU-INVARIANT", "SUP-INV");
+
+        assertEquals("SKU-INVARIANT", updated.getSku());
+        assertEquals("Invariant Product", updated.getName());
+        assertEquals(new BigDecimal("88.50"), updated.getPrice());
+        assertEquals(45, updated.getQuantity());
+        assertEquals(7, updated.getMinimumStock());
+
+        // Check storage
+        Product stored = productService.findProductBySku("SKU-INVARIANT").orElseThrow();
+        assertEquals(new BigDecimal("88.50"), stored.getPrice());
+        assertEquals(45, stored.getQuantity());
+        assertEquals(7, stored.getMinimumStock());
+    }
+
+    @Test
+    @DisplayName("Should allow multiple products to be assigned to the same supplier")
+    void shouldAllowMultipleProductsAssignedToSameSupplier() {
+        productService.createProduct("SKU-MULTI-1", "Product A", new BigDecimal("10.00"), 5, 1);
+        productService.createProduct("SKU-MULTI-2", "Product B", new BigDecimal("20.00"), 10, 2);
+        supplierRepository.save(new Supplier("SUP-COMMON", "Common Supplier", null, null, null, null));
+
+        productService.assignSupplier("SKU-MULTI-1", "SUP-COMMON");
+        productService.assignSupplier("SKU-MULTI-2", "SUP-COMMON");
+
+        Optional<Supplier> s1 = productService.getSupplierForProduct("SKU-MULTI-1");
+        Optional<Supplier> s2 = productService.getSupplierForProduct("SKU-MULTI-2");
+
+        assertTrue(s1.isPresent());
+        assertTrue(s2.isPresent());
+        assertEquals(s1.get().getId(), s2.get().getId());
+        assertEquals("SUP-COMMON", s1.get().getSupplierCode());
+    }
+
+    @Test
+    @DisplayName("Should reject blank SKU or blank supplier code when assigning supplier")
+    void shouldRejectBlankInputsWhenAssigningSupplier() {
+        assertThrows(ValidationException.class, () -> productService.assignSupplier("", "SUP-1"));
+        assertThrows(ValidationException.class, () -> productService.assignSupplier("   ", "SUP-1"));
+        assertThrows(ValidationException.class, () -> productService.assignSupplier(null, "SUP-1"));
+        assertThrows(ValidationException.class, () -> productService.assignSupplier("SKU-1", ""));
+        assertThrows(ValidationException.class, () -> productService.assignSupplier("SKU-1", "   "));
+        assertThrows(ValidationException.class, () -> productService.assignSupplier("SKU-1", null));
+    }
+
+    @Test
+    @DisplayName("Should reject blank SKU when removing supplier")
+    void shouldRejectBlankSkuWhenRemovingSupplier() {
+        assertThrows(ValidationException.class, () -> productService.removeSupplier(""));
+        assertThrows(ValidationException.class, () -> productService.removeSupplier("   "));
+        assertThrows(ValidationException.class, () -> productService.removeSupplier(null));
+    }
+
+    @Test
+    @DisplayName("Should reject blank SKU when getting supplier for product")
+    void shouldRejectBlankSkuWhenGettingSupplierForProduct() {
+        assertThrows(ValidationException.class, () -> productService.getSupplierForProduct(""));
+        assertThrows(ValidationException.class, () -> productService.getSupplierForProduct("   "));
+        assertThrows(ValidationException.class, () -> productService.getSupplierForProduct(null));
+    }
+
+    @Test
+    @DisplayName("Should reject supplier operations when supplier repository is not configured")
+    void shouldRejectSupplierOperationsWhenSupplierRepoNotConfigured() {
+        ProductRepository repo = new InMemoryProductRepository();
+        ProductService noSupplierService = new ProductService(repo, null, null);
+        repo.save(new Product("SKU-NOREPO", "Item", new BigDecimal("10.00"), 5, 1));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                noSupplierService.assignSupplier("SKU-NOREPO", "SUP-1"));
+        assertTrue(ex.getMessage().contains("Supplier operations are not supported"));
+    }
+
+    @Test
+    @DisplayName("Should reject incompatible supplier repository combinations")
+    void shouldRejectIncompatibleSupplierRepositoryCombinations() {
+        ProductRepository inMemProductRepo = new InMemoryProductRepository();
+        ProductRepository jdbcProductRepo = new JdbcProductRepository();
+        SupplierRepository inMemSupplierRepo = new InMemorySupplierRepository();
+        SupplierRepository jdbcSupplierRepo = new JdbcSupplierRepository();
+
+        assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(jdbcProductRepo, null, inMemSupplierRepo));
+        assertThrows(IllegalArgumentException.class, () ->
+                new ProductService(inMemProductRepo, null, jdbcSupplierRepo));
+    }
+
+    @Test
+    @DisplayName("Should create product with valid supplier code successfully")
+    void shouldCreateProductWithSupplierCodeSuccessfully() {
+        supplierRepository.save(new Supplier("SUP-INIT", "Initial Supplier", null, null, null, null));
+
+        Product product = productService.createProduct(
+                "SKU-WITH-SUP", "Packaged Product", new BigDecimal("35.00"), 12, 2, "SUP-INIT");
+
+        assertNotNull(product);
+        assertNotNull(product.getSupplierId());
+        Optional<Supplier> sOpt = productService.getSupplierForProduct("SKU-WITH-SUP");
+        assertTrue(sOpt.isPresent());
+        assertEquals("SUP-INIT", sOpt.get().getSupplierCode());
+    }
+
+    @Test
+    @DisplayName("Should reject creating product with unknown supplier code")
+    void shouldRejectCreateProductWithUnknownSupplierCode() {
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                productService.createProduct("SKU-FAIL-SUP", "Fail Product", new BigDecimal("10.00"), 5, 1, "UNKNOWN-CODE"));
+        assertTrue(ex.getMessage().contains("Supplier not found with code: UNKNOWN-CODE"));
+
+        assertTrue(productService.findProductBySku("SKU-FAIL-SUP").isEmpty(),
+                "Product must not be persisted if supplier validation fails");
     }
 }

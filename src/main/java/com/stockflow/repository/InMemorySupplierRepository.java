@@ -36,6 +36,16 @@ public class InMemorySupplierRepository implements SupplierRepository {
     }
 
     @Override
+    public Optional<Supplier> findById(Long id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return suppliersByCode.values().stream()
+                .filter(s -> id.equals(s.getId()))
+                .findFirst();
+    }
+
+    @Override
     public Optional<Supplier> findBySupplierCode(String supplierCode) {
         if (supplierCode == null) {
             return Optional.empty();

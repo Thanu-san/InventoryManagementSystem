@@ -187,6 +187,29 @@ public class InMemoryProductRepository implements ProductRepository {
         return productsBySku.remove(sku.trim()) != null;
     }
 
+    @Override
+    public boolean updateSupplier(String sku, Long supplierId) {
+        if (sku == null) {
+            return false;
+        }
+        String key = sku.trim();
+        Product existing = productsBySku.get(key);
+        if (existing == null) {
+            return false;
+        }
+        existing.setSupplierId(supplierId);
+        return true;
+    }
+
+    @Override
+    public boolean existsBySupplierId(Long supplierId) {
+        if (supplierId == null) {
+            return false;
+        }
+        return productsBySku.values().stream()
+                .anyMatch(p -> supplierId.equals(p.getSupplierId()));
+    }
+
     /**
      * Updates a product's quantity directly in memory.
      * Used exclusively by atomic stock operations, preserving immutability of the Product model.
@@ -206,7 +229,8 @@ public class InMemoryProductRepository implements ProductRepository {
                 existing.getName(),
                 existing.getPrice(),
                 newQuantity,
-                existing.getMinimumStock()
+                existing.getMinimumStock(),
+                existing.getSupplierId()
         );
         productsBySku.put(existing.getSku(), updated);
     }

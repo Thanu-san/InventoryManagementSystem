@@ -18,6 +18,11 @@ public interface SupplierRepository {
     Supplier save(Supplier supplier);
 
     /**
+     * Finds a supplier by its primary key ID.
+     */
+    Optional<Supplier> findById(Long id);
+
+    /**
      * Finds a supplier by its supplier code.
      */
     Optional<Supplier> findBySupplierCode(String supplierCode);

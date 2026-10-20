@@ -24,12 +24,13 @@ public class Main {
 
         // 1. Dependency wiring: Repository -> Service -> Controller
         ProductRepository productRepository = new JdbcProductRepository();
+        SupplierRepository supplierRepository = new JdbcSupplierRepository();
         InventoryTransactionRepository transactionRepository = new JdbcInventoryTransactionRepository();
-        ProductService productService = new ProductService(productRepository, transactionRepository);
+
+        ProductService productService = new ProductService(productRepository, transactionRepository, supplierRepository);
         ProductController productController = new ProductController(productService, scanner);
 
-        SupplierRepository supplierRepository = new JdbcSupplierRepository();
-        SupplierService supplierService = new SupplierService(supplierRepository);
+        SupplierService supplierService = new SupplierService(supplierRepository, productRepository);
         SupplierController supplierController = new SupplierController(supplierService, scanner);
 
         System.out.println("============================================");

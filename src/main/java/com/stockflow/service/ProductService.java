@@ -9,13 +9,17 @@ import com.stockflow.model.PagedResult;
 import com.stockflow.model.Product;
 import com.stockflow.model.SortDirection;
 import com.stockflow.model.SortField;
+import com.stockflow.model.Supplier;
 import com.stockflow.model.TransactionType;
 import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.InMemorySupplierRepository;
 import com.stockflow.repository.InventoryTransactionRepository;
 import com.stockflow.repository.JdbcInventoryTransactionRepository;
 import com.stockflow.repository.JdbcProductRepository;
+import com.stockflow.repository.JdbcSupplierRepository;
 import com.stockflow.repository.ProductRepository;
+import com.stockflow.repository.SupplierRepository;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -29,39 +33,58 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final InventoryTransactionRepository transactionRepository;
+    private final SupplierRepository supplierRepository;
 
     public ProductService(ProductRepository productRepository) {
         this(productRepository, productRepository instanceof InMemoryProductRepository inMemoryRepo
                 ? new InMemoryInventoryTransactionRepository(inMemoryRepo)
-                : null);
+                : null,
+             null);
     }
 
     public ProductService(ProductRepository productRepository, InventoryTransactionRepository transactionRepository) {
-        validateRepositoryCompatibility(productRepository, transactionRepository);
+        this(productRepository, transactionRepository, null);
+    }
+
+    public ProductService(ProductRepository productRepository,
+                          InventoryTransactionRepository transactionRepository,
+                          SupplierRepository supplierRepository) {
+        validateRepositoryCompatibility(productRepository, transactionRepository, supplierRepository);
         this.productRepository = productRepository;
         this.transactionRepository = transactionRepository;
+        this.supplierRepository = supplierRepository;
     }
 
     private static void validateRepositoryCompatibility(ProductRepository productRepo,
-                                                         InventoryTransactionRepository txRepo) {
+                                                         InventoryTransactionRepository txRepo,
+                                                         SupplierRepository supplierRepo) {
         if (productRepo == null) {
             throw new IllegalArgumentException("Product repository cannot be null.");
         }
-        if (txRepo == null) {
-            return; // Permitted for Product CRUD-only service operations
-        }
-        if (productRepo instanceof JdbcProductRepository && txRepo instanceof InMemoryInventoryTransactionRepository) {
-            throw new IllegalArgumentException(
-                    "Unsupported repository combination: JdbcProductRepository cannot be paired with InMemoryInventoryTransactionRepository.");
-        }
-        if (productRepo instanceof InMemoryProductRepository && txRepo instanceof JdbcInventoryTransactionRepository) {
-            throw new IllegalArgumentException(
-                    "Unsupported repository combination: InMemoryProductRepository cannot be paired with JdbcInventoryTransactionRepository.");
-        }
-        if (productRepo instanceof InMemoryProductRepository && txRepo instanceof InMemoryInventoryTransactionRepository inMemoryTxRepo) {
-            if (inMemoryTxRepo.getProductRepository() != productRepo) {
+        if (txRepo != null) {
+            if (productRepo instanceof JdbcProductRepository && txRepo instanceof InMemoryInventoryTransactionRepository) {
                 throw new IllegalArgumentException(
-                        "Mismatched repository instances: InMemoryInventoryTransactionRepository must be connected to the same InMemoryProductRepository instance used by ProductService.");
+                        "Unsupported repository combination: JdbcProductRepository cannot be paired with InMemoryInventoryTransactionRepository.");
+            }
+            if (productRepo instanceof InMemoryProductRepository && txRepo instanceof JdbcInventoryTransactionRepository) {
+                throw new IllegalArgumentException(
+                        "Unsupported repository combination: InMemoryProductRepository cannot be paired with JdbcInventoryTransactionRepository.");
+            }
+            if (productRepo instanceof InMemoryProductRepository && txRepo instanceof InMemoryInventoryTransactionRepository inMemoryTxRepo) {
+                if (inMemoryTxRepo.getProductRepository() != productRepo) {
+                    throw new IllegalArgumentException(
+                            "Mismatched repository instances: InMemoryInventoryTransactionRepository must be connected to the same InMemoryProductRepository instance used by ProductService.");
+                }
+            }
+        }
+        if (supplierRepo != null) {
+            if (productRepo instanceof JdbcProductRepository && supplierRepo instanceof InMemorySupplierRepository) {
+                throw new IllegalArgumentException(
+                        "Unsupported repository combination: JdbcProductRepository cannot be paired with InMemorySupplierRepository.");
+            }
+            if (productRepo instanceof InMemoryProductRepository && supplierRepo instanceof JdbcSupplierRepository) {
+                throw new IllegalArgumentException(
+                        "Unsupported repository combination: InMemoryProductRepository cannot be paired with JdbcSupplierRepository.");
             }
         }
     }
@@ -70,9 +93,24 @@ public class ProductService {
      * Creates and saves a new product after validating all business rules.
      */
     public Product createProduct(String sku, String name, BigDecimal price, int quantity, int minimumStock) {
+        return createProduct(sku, name, price, quantity, minimumStock, null);
+    }
+
+    /**
+     * Creates and saves a new product with an optional supplier code after validating all business rules.
+     */
+    public Product createProduct(String sku, String name, BigDecimal price, int quantity, int minimumStock, String supplierCode) {
         validateProductData(sku, name, price, quantity, minimumStock);
 
-        Product product = new Product(sku.trim(), name.trim(), price, quantity, minimumStock);
+        Long supplierId = null;
+        if (supplierCode != null && !supplierCode.trim().isEmpty()) {
+            ensureSupplierRepositoryConfigured();
+            Supplier supplier = supplierRepository.findBySupplierCode(supplierCode.trim())
+                    .orElseThrow(() -> new ValidationException("Supplier not found with code: " + supplierCode.trim()));
+            supplierId = supplier.getId();
+        }
+
+        Product product = new Product(sku.trim(), name.trim(), price, quantity, minimumStock, supplierId);
         return productRepository.save(product);
     }
 
@@ -333,6 +371,93 @@ public class ProductService {
                 .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
 
         return transactionRepository.findByProductId(product.getId());
+    }
+
+    /**
+     * Assigns a supplier to a product identified by SKU.
+     *
+     * @param sku product SKU
+     * @param supplierCode supplier code to assign
+     * @return the updated Product
+     */
+    public Product assignSupplier(String sku, String supplierCode) {
+        ensureSupplierRepositoryConfigured();
+
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+        if (supplierCode == null || supplierCode.trim().isEmpty()) {
+            throw new ValidationException("Supplier code cannot be blank.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        Supplier supplier = supplierRepository.findBySupplierCode(supplierCode.trim())
+                .orElseThrow(() -> new ValidationException("Supplier not found with code: " + supplierCode.trim()));
+
+        boolean updated = productRepository.updateSupplier(product.getSku(), supplier.getId());
+        if (!updated) {
+            throw new ValidationException("Product not found with SKU: " + sku.trim());
+        }
+
+        product.setSupplierId(supplier.getId());
+        return product;
+    }
+
+    /**
+     * Removes the assigned supplier from a product identified by SKU.
+     *
+     * @param sku product SKU
+     * @return the updated Product
+     */
+    public Product removeSupplier(String sku) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        boolean updated = productRepository.updateSupplier(product.getSku(), null);
+        if (!updated) {
+            throw new ValidationException("Product not found with SKU: " + sku.trim());
+        }
+
+        product.setSupplierId(null);
+        return product;
+    }
+
+    /**
+     * Retrieves the assigned supplier for a product identified by SKU.
+     *
+     * @param sku product SKU
+     * @return Optional containing the assigned Supplier, or empty if no supplier is assigned
+     */
+    public Optional<Supplier> getSupplierForProduct(String sku) {
+        if (sku == null || sku.trim().isEmpty()) {
+            throw new ValidationException("Product SKU cannot be blank.");
+        }
+
+        Product product = productRepository.findBySku(sku.trim())
+                .orElseThrow(() -> new ValidationException("Product not found with SKU: " + sku.trim()));
+
+        if (product.getSupplierId() == null) {
+            return Optional.empty();
+        }
+
+        if (supplierRepository == null) {
+            return Optional.empty();
+        }
+
+        return supplierRepository.findById(product.getSupplierId());
+    }
+
+    private void ensureSupplierRepositoryConfigured() {
+        if (supplierRepository == null) {
+            throw new IllegalStateException(
+                    "Supplier operations are not supported: no SupplierRepository is configured for this ProductService.");
+        }
     }
 
     private void ensureTransactionRepositoryConfigured() {

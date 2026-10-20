@@ -1,13 +1,17 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.Product;
 import com.stockflow.model.Supplier;
+import com.stockflow.repository.InMemoryProductRepository;
 import com.stockflow.repository.InMemorySupplierRepository;
+import com.stockflow.repository.ProductRepository;
 import com.stockflow.repository.SupplierRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,12 +21,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class SupplierServiceTest {
 
     private SupplierRepository supplierRepository;
+    private ProductRepository productRepository;
     private SupplierService supplierService;
 
     @BeforeEach
     void setUp() {
         supplierRepository = new InMemorySupplierRepository();
-        supplierService = new SupplierService(supplierRepository);
+        productRepository = new InMemoryProductRepository();
+        supplierService = new SupplierService(supplierRepository, productRepository);
     }
 
     // --- Constructor ---
@@ -327,5 +333,29 @@ class SupplierServiceTest {
         supplierService.deleteSupplierByCode("  SUP-SPC  ");
 
         assertTrue(supplierService.findSupplierByCode("SUP-SPC").isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should prevent deleting supplier when assigned to one or more products")
+    void shouldPreventDeletingSupplierWhenAssignedToProduct() {
+        Supplier supplier = supplierService.createSupplier("SUP-ASSIGNED", "Assigned Supplier", null, null, null, null);
+
+        // Assign to a product
+        Product product = new Product("SKU-PROT", "Protected Item", new BigDecimal("50.00"), 10, 2, supplier.getId());
+        productRepository.save(product);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                supplierService.deleteSupplierByCode("SUP-ASSIGNED"));
+        assertTrue(ex.getMessage().contains("currently assigned to one or more products"));
+
+        // Verify supplier was not deleted
+        assertTrue(supplierService.findSupplierByCode("SUP-ASSIGNED").isPresent());
+
+        // Remove assignment from product
+        productRepository.updateSupplier("SKU-PROT", null);
+
+        // Deleting supplier should now succeed
+        assertDoesNotThrow(() -> supplierService.deleteSupplierByCode("SUP-ASSIGNED"));
+        assertTrue(supplierService.findSupplierByCode("SUP-ASSIGNED").isEmpty());
     }
 }

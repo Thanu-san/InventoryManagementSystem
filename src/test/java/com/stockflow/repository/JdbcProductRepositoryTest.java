@@ -10,6 +10,7 @@ import com.stockflow.model.Product;
 import com.stockflow.model.SortDirection;
 import com.stockflow.model.SortField;
 import com.stockflow.service.ProductService;
+import com.stockflow.model.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +20,7 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +34,7 @@ class JdbcProductRepositoryTest {
     private String testSku;
     private String testSku2;
     private final List<String> extraTestSkus = new ArrayList<>();
+    private final List<String> extraTestSupplierCodes = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -39,6 +42,27 @@ class JdbcProductRepositoryTest {
         testSku = "TEST-" + System.currentTimeMillis();
         testSku2 = "TEST-2-" + System.currentTimeMillis();
         extraTestSkus.clear();
+        extraTestSupplierCodes.clear();
+
+        // Ensure suppliers table and products.supplier_id column exist
+        try (Connection connection = DatabaseConnection.getConnection();
+             Statement stmt = connection.createStatement()) {
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS suppliers (
+                    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    supplier_code   VARCHAR(50)  NOT NULL UNIQUE,
+                    name            VARCHAR(255) NOT NULL,
+                    contact_name    VARCHAR(255),
+                    phone           VARCHAR(50),
+                    email           VARCHAR(255),
+                    address         VARCHAR(500)
+                );
+                ALTER TABLE products 
+                ADD COLUMN IF NOT EXISTS supplier_id BIGINT REFERENCES suppliers(id) ON DELETE RESTRICT;
+            """);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to ensure database schema for tests", e);
+        }
     }
 
     @AfterEach
@@ -56,6 +80,14 @@ class JdbcProductRepositoryTest {
                 statement.setString(1, testSku);
                 statement.setString(2, testSku2);
                 statement.executeUpdate();
+            }
+            // Clean up test suppliers
+            for (String code : extraTestSupplierCodes) {
+                try (PreparedStatement statement = connection.prepareStatement("DELETE FROM suppliers WHERE supplier_code = ?")) {
+                    statement.setString(1, code);
+                    statement.executeUpdate();
+                } catch (SQLException ignored) {
+                }
             }
         } catch (SQLException ignored) {
         }
@@ -886,5 +918,108 @@ class JdbcProductRepositoryTest {
         assertFalse(repository.deleteBySku(null));
         assertFalse(repository.deleteBySku("   "));
         assertFalse(repository.deleteBySku(""));
+    }
+
+    // --- Phase 12: Connect Suppliers to Products Integration Tests ---
+
+    @Test
+    @DisplayName("Should save and retrieve product with supplier ID in PostgreSQL")
+    void shouldSaveAndRetrieveProductWithSupplierIdInPostgreSql() {
+        String supCode = "JSUP-SAVE-" + System.currentTimeMillis();
+        extraTestSupplierCodes.add(supCode);
+        JdbcSupplierRepository supplierRepo = new JdbcSupplierRepository();
+        Supplier supplier = supplierRepo.save(new Supplier(supCode, "Save Supplier", "Alice", "555", "alice@sup.com", "City"));
+
+        Product product = new Product(testSku, "Supplier Product", new BigDecimal("49.99"), 20, 5, supplier.getId());
+        repository.save(product);
+
+        Product retrieved = repository.findBySku(testSku).orElseThrow();
+        assertEquals(supplier.getId(), retrieved.getSupplierId(), "Supplier ID should be retrieved from PostgreSQL");
+    }
+
+    @Test
+    @DisplayName("Should reject saving product with invalid supplier ID violating foreign key in PostgreSQL")
+    void shouldRejectSavingProductWithInvalidSupplierIdInPostgreSql() {
+        Product product = new Product(testSku, "Invalid FK Product", new BigDecimal("10.00"), 5, 1, 999_999_999L);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                repository.save(product));
+        assertTrue(ex.getMessage().contains("Supplier not found with ID: 999999999"));
+    }
+
+    @Test
+    @DisplayName("Should assign and clear supplier ID using updateSupplier in PostgreSQL")
+    void shouldAssignAndClearSupplierIdInPostgreSql() {
+        String supCode = "JSUP-UPD-" + System.currentTimeMillis();
+        extraTestSupplierCodes.add(supCode);
+        JdbcSupplierRepository supplierRepo = new JdbcSupplierRepository();
+        Supplier supplier = supplierRepo.save(new Supplier(supCode, "Update Supplier", null, null, null, null));
+
+        // Save initially unassigned product
+        repository.save(new Product(testSku, "Unassigned Product", new BigDecimal("30.00"), 10, 2));
+        assertNull(repository.findBySku(testSku).orElseThrow().getSupplierId());
+
+        // Assign supplier
+        boolean assigned = repository.updateSupplier(testSku, supplier.getId());
+        assertTrue(assigned);
+        assertEquals(supplier.getId(), repository.findBySku(testSku).orElseThrow().getSupplierId());
+
+        // Clear supplier
+        boolean cleared = repository.updateSupplier(testSku, null);
+        assertTrue(cleared);
+        assertNull(repository.findBySku(testSku).orElseThrow().getSupplierId());
+    }
+
+    @Test
+    @DisplayName("Should preserve supplier ID when updating unrelated product fields in PostgreSQL")
+    void shouldPreserveSupplierIdWhenUpdatingUnrelatedFieldsInPostgreSql() {
+        String supCode = "JSUP-PRES-" + System.currentTimeMillis();
+        extraTestSupplierCodes.add(supCode);
+        JdbcSupplierRepository supplierRepo = new JdbcSupplierRepository();
+        Supplier supplier = supplierRepo.save(new Supplier(supCode, "Preserve Supplier", null, null, null, null));
+
+        Product product = new Product(testSku, "Original Name", new BigDecimal("15.00"), 10, 2, supplier.getId());
+        repository.save(product);
+
+        // Update name, price, minStock via update(Product)
+        Product toUpdate = new Product(testSku, "Updated Name", new BigDecimal("35.00"), 10, 4);
+        boolean updated = repository.update(toUpdate);
+        assertTrue(updated);
+
+        Product fromDb = repository.findBySku(testSku).orElseThrow();
+        assertEquals("Updated Name", fromDb.getName());
+        assertEquals(new BigDecimal("35.00"), fromDb.getPrice());
+        assertEquals(4, fromDb.getMinimumStock());
+        assertEquals(supplier.getId(), fromDb.getSupplierId(), "Supplier ID must be preserved");
+    }
+
+    @Test
+    @DisplayName("Should accurately check existence by supplier ID in PostgreSQL")
+    void shouldCheckExistenceBySupplierIdInPostgreSql() {
+        String supCode = "JSUP-EX-" + System.currentTimeMillis();
+        extraTestSupplierCodes.add(supCode);
+        JdbcSupplierRepository supplierRepo = new JdbcSupplierRepository();
+        Supplier supplier = supplierRepo.save(new Supplier(supCode, "Exists Supplier", null, null, null, null));
+
+        assertFalse(repository.existsBySupplierId(supplier.getId()));
+
+        repository.save(new Product(testSku, "Product With Supplier", new BigDecimal("20.00"), 5, 1, supplier.getId()));
+        assertTrue(repository.existsBySupplierId(supplier.getId()));
+    }
+
+    @Test
+    @DisplayName("Should persist supplier assignment across independent database connections")
+    void shouldPersistSupplierAssignmentAcrossConnections() {
+        String supCode = "JSUP-CONN-" + System.currentTimeMillis();
+        extraTestSupplierCodes.add(supCode);
+        JdbcSupplierRepository supplierRepo = new JdbcSupplierRepository();
+        Supplier supplier = supplierRepo.save(new Supplier(supCode, "Connection Test", null, null, null, null));
+
+        JdbcProductRepository repo1 = new JdbcProductRepository();
+        repo1.save(new Product(testSku, "Cross-Conn Product", new BigDecimal("10.00"), 5, 1, supplier.getId()));
+
+        JdbcProductRepository repo2 = new JdbcProductRepository();
+        Product fromConn2 = repo2.findBySku(testSku).orElseThrow();
+        assertEquals(supplier.getId(), fromConn2.getSupplierId());
     }
 }

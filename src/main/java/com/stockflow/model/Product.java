@@ -17,14 +17,25 @@ public class Product {
     private BigDecimal price;
     private final int quantity;
     private int minimumStock;
+    private Long supplierId;
 
     // Constructor without ID (used when creating a new product before persistence)
     public Product(String sku, String name, BigDecimal price, int quantity, int minimumStock) {
-        this(null, sku, name, price, quantity, minimumStock);
+        this(null, sku, name, price, quantity, minimumStock, null);
+    }
+
+    // Constructor without ID but with supplierId
+    public Product(String sku, String name, BigDecimal price, int quantity, int minimumStock, Long supplierId) {
+        this(null, sku, name, price, quantity, minimumStock, supplierId);
+    }
+
+    // Constructor without supplierId (used when reconstituting without supplier)
+    public Product(Long id, String sku, String name, BigDecimal price, int quantity, int minimumStock) {
+        this(id, sku, name, price, quantity, minimumStock, null);
     }
 
     // Full constructor (used when reconstituting an existing product, e.g. from storage)
-    public Product(Long id, String sku, String name, BigDecimal price, int quantity, int minimumStock) {
+    public Product(Long id, String sku, String name, BigDecimal price, int quantity, int minimumStock, Long supplierId) {
         if (sku == null || sku.isBlank()) {
             throw new IllegalArgumentException("Product SKU cannot be blank.");
         }
@@ -40,6 +51,7 @@ public class Product {
         setName(name);
         setPrice(price);
         setMinimumStock(minimumStock);
+        setSupplierId(supplierId);
     }
 
     // --- ID: Can only be assigned once ---
@@ -103,6 +115,18 @@ public class Product {
         this.minimumStock = minimumStock;
     }
 
+    // --- Supplier ID ---
+    public Long getSupplierId() {
+        return supplierId;
+    }
+
+    public void setSupplierId(Long supplierId) {
+        if (supplierId != null && supplierId <= 0) {
+            throw new IllegalArgumentException("Supplier ID must be greater than zero.");
+        }
+        this.supplierId = supplierId;
+    }
+
     @Override
     public String toString() {
         return "Product{" +
@@ -112,6 +136,7 @@ public class Product {
                 ", price=" + price +
                 ", quantity=" + quantity +
                 ", minimumStock=" + minimumStock +
+                ", supplierId=" + supplierId +
                 '}';
     }
 }
