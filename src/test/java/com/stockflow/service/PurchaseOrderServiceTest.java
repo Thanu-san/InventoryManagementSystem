@@ -1,12 +1,18 @@
 package com.stockflow.service;
 
 import com.stockflow.exception.ValidationException;
+import com.stockflow.model.InventoryTransaction;
 import com.stockflow.model.Product;
 import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
+import com.stockflow.model.PurchaseOrderReceipt;
 import com.stockflow.model.PurchaseOrderStatus;
+import com.stockflow.model.ReceiptLineInput;
 import com.stockflow.model.Supplier;
+import com.stockflow.model.TransactionType;
+import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.InMemoryPurchaseOrderReceiptRepository;
 import com.stockflow.repository.InMemoryPurchaseOrderRepository;
 import com.stockflow.repository.InMemorySupplierRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +31,8 @@ class PurchaseOrderServiceTest {
     private InMemoryPurchaseOrderRepository poRepository;
     private InMemorySupplierRepository supplierRepository;
     private InMemoryProductRepository productRepository;
+    private InMemoryInventoryTransactionRepository transactionRepository;
+    private InMemoryPurchaseOrderReceiptRepository receiptRepository;
 
     private PurchaseOrderService poService;
     private SupplierService supplierService;
@@ -39,10 +47,12 @@ class PurchaseOrderServiceTest {
         poRepository = new InMemoryPurchaseOrderRepository();
         supplierRepository = new InMemorySupplierRepository();
         productRepository = new InMemoryProductRepository();
+        transactionRepository = new InMemoryInventoryTransactionRepository(productRepository);
+        receiptRepository = new InMemoryPurchaseOrderReceiptRepository(poRepository, productRepository, transactionRepository);
 
-        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository);
+        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository, receiptRepository);
         supplierService = new SupplierService(supplierRepository, productRepository, poRepository);
-        productService = new ProductService(productRepository, null, supplierRepository, poRepository);
+        productService = new ProductService(productRepository, transactionRepository, supplierRepository, poRepository);
 
         supplier = supplierRepository.save(new Supplier("SUP-001", "Acme Corp", "Alice", "123", "alice@acme.com", "City"));
         product1 = productRepository.save(new Product("PROD-001", "Mechanical Keyboard", new BigDecimal("79.99"), 50, 10));
@@ -301,38 +311,162 @@ class PurchaseOrderServiceTest {
         assertTrue(ex.getMessage().contains("referenced by one or more purchase order line items"));
     }
 
+    // --- Phase 13B Receiving Tests ---
+
     @Test
-    @DisplayName("Product stock quantities must remain completely UNTOUCHED throughout Phase 13A")
-    void productStockQuantitiesMustRemainUntouched() {
-        int initialQty1 = product1.getQuantity();
-        int initialQty2 = product2.getQuantity();
+    @DisplayName("Should receive valid full delivery and update inventory and order status")
+    void shouldReceiveValidFullDelivery() {
+        poService.createDraftOrder("PO-RECV-FULL", "SUP-001");
+        poService.addOrUpdateItem("PO-RECV-FULL", "PROD-001", 15, new BigDecimal("50.00"));
+        poService.addOrUpdateItem("PO-RECV-FULL", "PROD-002", 10, new BigDecimal("20.00"));
+        poService.placeOrder("PO-RECV-FULL");
 
-        // 1. Create order
-        poService.createDraftOrder("PO-STOCK-CHECK", "SUP-001");
-        assertEquals(initialQty1, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
-        assertEquals(initialQty2, productRepository.findBySku("PROD-002").orElseThrow().getQuantity());
+        PurchaseOrder order = poService.getOrderByNumber("PO-RECV-FULL").orElseThrow();
+        Long item1Id = order.findItemByProductSku("PROD-001").orElseThrow().getId();
+        Long item2Id = order.findItemByProductSku("PROD-002").orElseThrow().getId();
 
-        // 2. Add line items
-        poService.addOrUpdateItem("PO-STOCK-CHECK", "PROD-001", 100, new BigDecimal("50.00"));
-        poService.addOrUpdateItem("PO-STOCK-CHECK", "PROD-002", 200, new BigDecimal("20.00"));
-        assertEquals(initialQty1, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
-        assertEquals(initialQty2, productRepository.findBySku("PROD-002").orElseThrow().getQuantity());
+        int initialQty1 = product1.getQuantity(); // 50
+        int initialQty2 = product2.getQuantity(); // 30
 
-        // 3. Remove line item
-        poService.removeItem("PO-STOCK-CHECK", "PROD-002");
-        assertEquals(initialQty1, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
-        assertEquals(initialQty2, productRepository.findBySku("PROD-002").orElseThrow().getQuantity());
+        List<ReceiptLineInput> lines = List.of(
+                new ReceiptLineInput(item1Id, 15),
+                new ReceiptLineInput(item2Id, 10)
+        );
 
-        // 4. Place order
-        poService.placeOrder("PO-STOCK-CHECK");
-        assertEquals(initialQty1, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
-        assertEquals(initialQty2, productRepository.findBySku("PROD-002").orElseThrow().getQuantity());
+        PurchaseOrderReceipt receipt = poService.receiveGoods("PO-RECV-FULL", lines, "Complete shipment");
+        assertNotNull(receipt);
+        assertTrue(receipt.getReceiptNumber().startsWith("REC-"));
+        assertEquals(25, receipt.getTotalReceivedQuantity());
 
-        // 5. Cancel another order
-        poService.createDraftOrder("PO-STOCK-CANCEL", "SUP-001");
-        poService.addOrUpdateItem("PO-STOCK-CANCEL", "PROD-001", 50, new BigDecimal("50.00"));
-        poService.cancelOrder("PO-STOCK-CANCEL");
-        assertEquals(initialQty1, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
-        assertEquals(initialQty2, productRepository.findBySku("PROD-002").orElseThrow().getQuantity());
+        // Stock increases exactly by received quantity
+        assertEquals(initialQty1 + 15, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
+        assertEquals(initialQty2 + 10, productRepository.findBySku("PROD-002").orElseThrow().getQuantity());
+
+        // Product selling price must remain unchanged (79.99 and 29.99)
+        assertEquals(new BigDecimal("79.99"), productRepository.findBySku("PROD-001").orElseThrow().getPrice());
+        assertEquals(new BigDecimal("29.99"), productRepository.findBySku("PROD-002").orElseThrow().getPrice());
+
+        // Order status becomes RECEIVED
+        PurchaseOrder updatedOrder = poService.getOrderByNumber("PO-RECV-FULL").orElseThrow();
+        assertEquals(PurchaseOrderStatus.RECEIVED, updatedOrder.getStatus());
+        assertEquals(0, updatedOrder.getTotalRemainingUnits());
+    }
+
+    @Test
+    @DisplayName("Should receive partial delivery and mark order PARTIALLY_RECEIVED")
+    void shouldReceivePartialDelivery() {
+        poService.createDraftOrder("PO-RECV-PART", "SUP-001");
+        poService.addOrUpdateItem("PO-RECV-PART", "PROD-001", 20, new BigDecimal("50.00"));
+        poService.placeOrder("PO-RECV-PART");
+
+        PurchaseOrder order = poService.getOrderByNumber("PO-RECV-PART").orElseThrow();
+        Long itemId = order.findItemByProductSku("PROD-001").orElseThrow().getId();
+
+        PurchaseOrderReceipt receipt = poService.receiveGoods("PO-RECV-PART", List.of(new ReceiptLineInput(itemId, 8)), "Partial 1");
+        assertEquals(8, receipt.getTotalReceivedQuantity());
+
+        PurchaseOrder updatedOrder = poService.getOrderByNumber("PO-RECV-PART").orElseThrow();
+        assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, updatedOrder.getStatus());
+        assertEquals(8, updatedOrder.getTotalReceivedUnits());
+        assertEquals(12, updatedOrder.getTotalRemainingUnits());
+
+        // Stock increased by 8
+        assertEquals(58, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should receive multiple deliveries until complete")
+    void shouldReceiveMultipleDeliveries() {
+        poService.createDraftOrder("PO-RECV-MULTI", "SUP-001");
+        poService.addOrUpdateItem("PO-RECV-MULTI", "PROD-001", 10, new BigDecimal("40.00"));
+        poService.placeOrder("PO-RECV-MULTI");
+
+        PurchaseOrder order = poService.getOrderByNumber("PO-RECV-MULTI").orElseThrow();
+        Long itemId = order.findItemByProductSku("PROD-001").orElseThrow().getId();
+
+        // 1st delivery: 3
+        poService.receiveGoods("PO-RECV-MULTI", List.of(new ReceiptLineInput(itemId, 3)), "D1");
+        assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, poService.getOrderByNumber("PO-RECV-MULTI").orElseThrow().getStatus());
+
+        // 2nd delivery: 4
+        poService.receiveGoods("PO-RECV-MULTI", List.of(new ReceiptLineInput(itemId, 4)), "D2");
+        assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, poService.getOrderByNumber("PO-RECV-MULTI").orElseThrow().getStatus());
+
+        // 3rd delivery: remaining 3
+        poService.receiveGoods("PO-RECV-MULTI", List.of(new ReceiptLineInput(itemId, 3)), "D3");
+        assertEquals(PurchaseOrderStatus.RECEIVED, poService.getOrderByNumber("PO-RECV-MULTI").orElseThrow().getStatus());
+
+        // Total receipts should be 3
+        List<PurchaseOrderReceipt> receipts = poService.getReceiptsForOrder("PO-RECV-MULTI");
+        assertEquals(3, receipts.size());
+
+        // Final product stock = 50 + 10 = 60
+        assertEquals(60, productRepository.findBySku("PROD-001").orElseThrow().getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should reject receiving more than remaining quantity")
+    void shouldRejectReceivingMoreThanRemaining() {
+        poService.createDraftOrder("PO-RECV-OVER", "SUP-001");
+        poService.addOrUpdateItem("PO-RECV-OVER", "PROD-001", 10, new BigDecimal("40.00"));
+        poService.placeOrder("PO-RECV-OVER");
+
+        PurchaseOrder order = poService.getOrderByNumber("PO-RECV-OVER").orElseThrow();
+        Long itemId = order.findItemByProductSku("PROD-001").orElseThrow().getId();
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                poService.receiveGoods("PO-RECV-OVER", List.of(new ReceiptLineInput(itemId, 11)), null));
+        assertTrue(ex.getMessage().contains("exceeds remaining quantity"));
+    }
+
+    @Test
+    @DisplayName("Should reject receiving against DRAFT or CANCELLED order")
+    void shouldRejectReceivingAgainstDraftOrCancelled() {
+        poService.createDraftOrder("PO-RECV-DRAFT", "SUP-001");
+        poService.addOrUpdateItem("PO-RECV-DRAFT", "PROD-001", 5, new BigDecimal("40.00"));
+        PurchaseOrder draftOrder = poService.getOrderByNumber("PO-RECV-DRAFT").orElseThrow();
+        Long itemId = draftOrder.getItems().get(0).getId();
+
+        assertThrows(ValidationException.class, () ->
+                poService.receiveGoods("PO-RECV-DRAFT", List.of(new ReceiptLineInput(itemId, 2)), null));
+
+        poService.cancelOrder("PO-RECV-DRAFT");
+        assertThrows(ValidationException.class, () ->
+                poService.receiveGoods("PO-RECV-DRAFT", List.of(new ReceiptLineInput(itemId, 2)), null));
+    }
+
+    @Test
+    @DisplayName("Should reject receiving against fully RECEIVED order")
+    void shouldRejectReceivingAgainstFullyReceived() {
+        poService.createDraftOrder("PO-RECV-DONE", "SUP-001");
+        poService.addOrUpdateItem("PO-RECV-DONE", "PROD-001", 5, new BigDecimal("40.00"));
+        poService.placeOrder("PO-RECV-DONE");
+
+        PurchaseOrder order = poService.getOrderByNumber("PO-RECV-DONE").orElseThrow();
+        Long itemId = order.getItems().get(0).getId();
+
+        poService.receiveGoods("PO-RECV-DONE", List.of(new ReceiptLineInput(itemId, 5)), null);
+        assertEquals(PurchaseOrderStatus.RECEIVED, poService.getOrderByNumber("PO-RECV-DONE").orElseThrow().getStatus());
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                poService.receiveGoods("PO-RECV-DONE", List.of(new ReceiptLineInput(itemId, 1)), null));
+        assertTrue(ex.getMessage().contains("already fully received"));
+    }
+
+    @Test
+    @DisplayName("Should prevent cancelling purchase order after goods have been received")
+    void shouldPreventCancellingOrderWithReceivedGoods() {
+        poService.createDraftOrder("PO-NO-CANCEL", "SUP-001");
+        poService.addOrUpdateItem("PO-NO-CANCEL", "PROD-001", 10, new BigDecimal("40.00"));
+        poService.placeOrder("PO-NO-CANCEL");
+
+        PurchaseOrder order = poService.getOrderByNumber("PO-NO-CANCEL").orElseThrow();
+        Long itemId = order.getItems().get(0).getId();
+
+        poService.receiveGoods("PO-NO-CANCEL", List.of(new ReceiptLineInput(itemId, 2)), null);
+
+        ValidationException ex = assertThrows(ValidationException.class, () ->
+                poService.cancelOrder("PO-NO-CANCEL"));
+        assertTrue(ex.getMessage().contains("goods have already been received"));
     }
 }

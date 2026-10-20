@@ -5,7 +5,9 @@ import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
 import com.stockflow.model.PurchaseOrderStatus;
 import com.stockflow.model.Supplier;
+import com.stockflow.repository.InMemoryInventoryTransactionRepository;
 import com.stockflow.repository.InMemoryProductRepository;
+import com.stockflow.repository.InMemoryPurchaseOrderReceiptRepository;
 import com.stockflow.repository.InMemoryPurchaseOrderRepository;
 import com.stockflow.repository.InMemorySupplierRepository;
 import com.stockflow.service.PurchaseOrderService;
@@ -18,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Scanner;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,6 +31,8 @@ class PurchaseOrderControllerTest {
     private InMemoryPurchaseOrderRepository poRepository;
     private InMemorySupplierRepository supplierRepository;
     private InMemoryProductRepository productRepository;
+    private InMemoryInventoryTransactionRepository transactionRepository;
+    private InMemoryPurchaseOrderReceiptRepository receiptRepository;
     private PurchaseOrderService poService;
 
     @BeforeEach
@@ -35,7 +40,9 @@ class PurchaseOrderControllerTest {
         poRepository = new InMemoryPurchaseOrderRepository();
         supplierRepository = new InMemorySupplierRepository();
         productRepository = new InMemoryProductRepository();
-        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository);
+        transactionRepository = new InMemoryInventoryTransactionRepository(productRepository);
+        receiptRepository = new InMemoryPurchaseOrderReceiptRepository(poRepository, productRepository, transactionRepository);
+        poService = new PurchaseOrderService(poRepository, supplierRepository, productRepository, receiptRepository);
 
         supplierRepository.save(new Supplier("SUP-01", "Global Supplier", null, null, null, null));
         productRepository.save(new Product("SKU-100", "Widget", new BigDecimal("10.00"), 50, 5));
@@ -56,9 +63,9 @@ class PurchaseOrderControllerTest {
     }
 
     @Test
-    @DisplayName("Should display menu and exit on option 8")
-    void shouldExitOnOption8() {
-        String output = runControllerWithInput("8\n");
+    @DisplayName("Should display menu and exit on option 10")
+    void shouldExitOnOption10() {
+        String output = runControllerWithInput("10\n");
         assertTrue(output.contains("--- Purchase Order Management ---"));
     }
 
@@ -72,7 +79,7 @@ class PurchaseOrderControllerTest {
     @Test
     @DisplayName("Should handle invalid menu choices")
     void shouldHandleInvalidMenuChoices() {
-        String output = runControllerWithInput("99\n8\n");
+        String output = runControllerWithInput("99\n10\n");
         assertTrue(output.contains("Invalid option. Please try again."));
     }
 
@@ -83,7 +90,7 @@ class PurchaseOrderControllerTest {
                 "1",             // Menu option 1: Create Draft
                 "SUP-01",        // Supplier code
                 "PO-TEST-101",   // Custom order number
-                "8"              // Exit
+                "10"             // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -100,7 +107,7 @@ class PurchaseOrderControllerTest {
                 "1",        // Menu option 1: Create Draft
                 "SUP-01",   // Supplier code
                 "",         // Press enter for auto-generated
-                "8"         // Exit
+                "10"        // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -115,7 +122,7 @@ class PurchaseOrderControllerTest {
                 "1",            // Create Draft
                 "NON-EXIST",    // Supplier code
                 "PO-1",         // Order number
-                "8"             // Exit
+                "10"            // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -133,7 +140,7 @@ class PurchaseOrderControllerTest {
                 "SKU-100",   // SKU
                 "5",         // Quantity
                 "12.50",     // Unit cost
-                "8"          // Exit
+                "10"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -156,7 +163,7 @@ class PurchaseOrderControllerTest {
                 "PO-REM",    // Order number
                 "SKU-100",   // SKU
                 "Y",         // Confirm
-                "8"          // Exit
+                "10"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -177,7 +184,7 @@ class PurchaseOrderControllerTest {
                 "PO-NO-REM",  // Order number
                 "SKU-100",    // SKU
                 "N",          // Cancel
-                "8"           // Exit
+                "10"          // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -196,14 +203,14 @@ class PurchaseOrderControllerTest {
         String input = String.join("\n",
                 "4",         // View order
                 "PO-VIEW",   // Order number
-                "8"          // Exit
+                "10"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
         assertTrue(output.contains("Purchase Order Details"));
         assertTrue(output.contains("PO-VIEW"));
-        assertTrue(output.contains("Total Units: 4"));
-        assertTrue(output.contains("Total Order Amount: $60.00"));
+        assertTrue(output.contains("Total Units Ordered: 4"));
+        assertTrue(output.contains("Total Amount: $60.00"));
     }
 
     @Test
@@ -214,7 +221,7 @@ class PurchaseOrderControllerTest {
         String input = String.join("\n",
                 "5",    // List orders
                 "1",    // All
-                "8"     // Exit
+                "10"    // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -232,7 +239,7 @@ class PurchaseOrderControllerTest {
                 "6",         // Place order
                 "PO-PLACE",  // Order number
                 "Y",         // Confirm
-                "8"          // Exit
+                "10"         // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
@@ -250,12 +257,59 @@ class PurchaseOrderControllerTest {
                 "7",          // Cancel order
                 "PO-CANCEL",  // Order number
                 "Y",          // Confirm
-                "8"           // Exit
+                "10"          // Exit
         ) + "\n";
 
         String output = runControllerWithInput(input);
         assertTrue(output.contains("has been cancelled."));
 
         assertEquals(PurchaseOrderStatus.CANCELLED, poRepository.findByOrderNumber("PO-CANCEL").orElseThrow().getStatus());
+    }
+
+    @Test
+    @DisplayName("Should receive goods against purchase order through console")
+    void shouldReceiveGoodsThroughConsole() {
+        poService.createDraftOrder("PO-RECV-UI", "SUP-01");
+        poService.addOrUpdateItem("PO-RECV-UI", "SKU-100", 10, new BigDecimal("10.00"));
+        poService.placeOrder("PO-RECV-UI");
+
+        String input = String.join("\n",
+                "8",            // Option 8: Receive Goods
+                "PO-RECV-UI",   // Order number
+                "6",            // Receive 6 units
+                "Batch #1",     // Delivery notes
+                "Y",            // Confirm receiving
+                "10"            // Exit
+        ) + "\n";
+
+        String output = runControllerWithInput(input);
+        assertTrue(output.contains("Success: Goods successfully received!"));
+        assertTrue(output.contains("Updated Purchase Order Status: PARTIALLY_RECEIVED"));
+
+        // Product stock increased from 50 to 56
+        assertEquals(56, productRepository.findBySku("SKU-100").orElseThrow().getQuantity());
+    }
+
+    @Test
+    @DisplayName("Should view receiving history through console")
+    void shouldViewReceivingHistoryThroughConsole() {
+        poService.createDraftOrder("PO-HIST-UI", "SUP-01");
+        poService.addOrUpdateItem("PO-HIST-UI", "SKU-100", 10, new BigDecimal("10.00"));
+        poService.placeOrder("PO-HIST-UI");
+
+        PurchaseOrder order = poService.getOrderByNumber("PO-HIST-UI").orElseThrow();
+        Long itemId = order.getItems().get(0).getId();
+        poService.receiveGoods("PO-HIST-UI", List.of(new com.stockflow.model.ReceiptLineInput(itemId, 5)), "Shipment 1");
+
+        String input = String.join("\n",
+                "9",            // Option 9: View History
+                "PO-HIST-UI",   // Order number
+                "10"            // Exit
+        ) + "\n";
+
+        String output = runControllerWithInput(input);
+        assertTrue(output.contains("Receiving History for Order: PO-HIST-UI"));
+        assertTrue(output.contains("Shipment 1"));
+        assertTrue(output.contains("Total Quantity Received in this delivery: 5 units"));
     }
 }

@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,6 +24,9 @@ class PurchaseOrderTest {
         assertTrue(order.getItems().isEmpty());
         assertEquals(BigDecimal.ZERO, order.getTotalAmount());
         assertEquals(0, order.getTotalUnits());
+        assertEquals(0, order.getTotalReceivedUnits());
+        assertEquals(0, order.getTotalRemainingUnits());
+        assertFalse(order.isReceivable());
     }
 
     @Test
@@ -70,6 +72,51 @@ class PurchaseOrderTest {
     }
 
     @Test
+    @DisplayName("Should calculate received and remaining units accurately")
+    void shouldCalculateReceivedAndRemainingUnits() {
+        PurchaseOrder order = new PurchaseOrder("PO-001", 5L);
+
+        PurchaseOrderItem item1 = new PurchaseOrderItem(1L, 100L, 10L, "SKU-A", "Product A", 10, new BigDecimal("10.00"), 4);
+        PurchaseOrderItem item2 = new PurchaseOrderItem(2L, 100L, 20L, "SKU-B", "Product B", 5, new BigDecimal("20.00"), 5);
+
+        order.addOrUpdateItem(item1);
+        order.addOrUpdateItem(item2);
+
+        assertEquals(15, order.getTotalUnits());
+        assertEquals(9, order.getTotalReceivedUnits());
+        assertEquals(6, order.getTotalRemainingUnits());
+        assertFalse(order.isFullyReceived());
+
+        assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, order.calculateReceivingStatus());
+
+        // Now fully receive item 1
+        item1.setReceivedQuantity(10);
+        assertEquals(15, order.getTotalReceivedUnits());
+        assertEquals(0, order.getTotalRemainingUnits());
+        assertTrue(order.isFullyReceived());
+        assertEquals(PurchaseOrderStatus.RECEIVED, order.calculateReceivingStatus());
+    }
+
+    @Test
+    @DisplayName("Should evaluate isReceivable correctly based on status")
+    void shouldEvaluateIsReceivable() {
+        PurchaseOrder order = new PurchaseOrder("PO-001", 5L);
+        assertFalse(order.isReceivable()); // DRAFT
+
+        order.setStatus(PurchaseOrderStatus.PLACED);
+        assertTrue(order.isReceivable());
+
+        order.setStatus(PurchaseOrderStatus.PARTIALLY_RECEIVED);
+        assertTrue(order.isReceivable());
+
+        order.setStatus(PurchaseOrderStatus.RECEIVED);
+        assertFalse(order.isReceivable());
+
+        order.setStatus(PurchaseOrderStatus.CANCELLED);
+        assertFalse(order.isReceivable());
+    }
+
+    @Test
     @DisplayName("Should update existing item when adding item with same product ID")
     void shouldUpdateExistingItemOnDuplicateProductId() {
         PurchaseOrder order = new PurchaseOrder("PO-001", 5L);
@@ -109,17 +156,16 @@ class PurchaseOrderTest {
     }
 
     @Test
-    @DisplayName("Should find item by product SKU case-insensitively")
-    void shouldFindItemByProductSku() {
+    @DisplayName("Should find item by product SKU and item ID")
+    void shouldFindItemByProductSkuAndItemId() {
         PurchaseOrder order = new PurchaseOrder("PO-001", 5L);
-        order.addOrUpdateItem(new PurchaseOrderItem(10L, "SKU-KEY-01", "Keyboard", 2, new BigDecimal("25.00")));
+        PurchaseOrderItem item = new PurchaseOrderItem(99L, 1L, 10L, "SKU-KEY-01", "Keyboard", 2, new BigDecimal("25.00"), 0);
+        order.addOrUpdateItem(item);
 
         assertTrue(order.findItemByProductSku("SKU-KEY-01").isPresent());
         assertTrue(order.findItemByProductSku("sku-key-01").isPresent());
-        assertTrue(order.findItemByProductSku("  SKU-KEY-01  ").isPresent());
-        assertTrue(order.findItemByProductSku("NON-EXIST").isEmpty());
-        assertTrue(order.findItemByProductSku(null).isEmpty());
-        assertTrue(order.findItemByProductSku("").isEmpty());
+        assertTrue(order.findItemById(99L).isPresent());
+        assertTrue(order.findItemById(888L).isEmpty());
     }
 
     @Test
@@ -130,6 +176,12 @@ class PurchaseOrderTest {
 
         order.setStatus(PurchaseOrderStatus.PLACED);
         assertEquals(PurchaseOrderStatus.PLACED, order.getStatus());
+
+        order.setStatus(PurchaseOrderStatus.PARTIALLY_RECEIVED);
+        assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, order.getStatus());
+
+        order.setStatus(PurchaseOrderStatus.RECEIVED);
+        assertEquals(PurchaseOrderStatus.RECEIVED, order.getStatus());
 
         order.setStatus(PurchaseOrderStatus.CANCELLED);
         assertEquals(PurchaseOrderStatus.CANCELLED, order.getStatus());

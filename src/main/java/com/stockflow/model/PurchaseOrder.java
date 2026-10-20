@@ -14,7 +14,7 @@ import java.util.Optional;
  * - Order number is immutable and serves as business identity.
  * - ID can only be assigned once upon persistence.
  * - Supplier ID is immutable once created.
- * - Status transitions follow strict lifecycle rules: DRAFT -> PLACED or CANCELLED.
+ * - Status transitions follow strict lifecycle rules: DRAFT -> PLACED -> PARTIALLY_RECEIVED -> RECEIVED (or CANCELLED).
  * - Total cost is dynamically calculated from its line items.
  */
 public class PurchaseOrder {
@@ -122,6 +122,7 @@ public class PurchaseOrder {
             PurchaseOrderItem current = existing.get();
             current.setOrderedQuantity(item.getOrderedQuantity());
             current.setUnitCost(item.getUnitCost());
+            current.setReceivedQuantity(item.getReceivedQuantity());
         } else {
             if (this.id != null && item.getPurchaseOrderId() == null) {
                 item.setPurchaseOrderId(this.id);
@@ -139,6 +140,18 @@ public class PurchaseOrder {
             return false;
         }
         return items.removeIf(item -> productId.equals(item.getProductId()));
+    }
+
+    /**
+     * Finds a line item by primary key ID.
+     */
+    public Optional<PurchaseOrderItem> findItemById(Long itemId) {
+        if (itemId == null) {
+            return Optional.empty();
+        }
+        return items.stream()
+                .filter(item -> itemId.equals(item.getId()))
+                .findFirst();
     }
 
     /**
@@ -188,6 +201,59 @@ public class PurchaseOrder {
         return total;
     }
 
+    /**
+     * Calculates the total received units across all line items.
+     */
+    public int getTotalReceivedUnits() {
+        int total = 0;
+        for (PurchaseOrderItem item : items) {
+            total += item.getReceivedQuantity();
+        }
+        return total;
+    }
+
+    /**
+     * Calculates the remaining units to be received across all line items.
+     */
+    public int getTotalRemainingUnits() {
+        int total = 0;
+        for (PurchaseOrderItem item : items) {
+            total += item.getRemainingQuantity();
+        }
+        return total;
+    }
+
+    /**
+     * Checks if receiving goods is currently permitted for this order.
+     * Allowed only when PLACED or PARTIALLY_RECEIVED.
+     */
+    public boolean isReceivable() {
+        return status == PurchaseOrderStatus.PLACED || status == PurchaseOrderStatus.PARTIALLY_RECEIVED;
+    }
+
+    /**
+     * Checks if every line item in the order has been completely received.
+     */
+    public boolean isFullyReceived() {
+        return !items.isEmpty() && items.stream().allMatch(PurchaseOrderItem::isFullyReceived);
+    }
+
+    /**
+     * Determines what the order status should be based on cumulative received quantities.
+     */
+    public PurchaseOrderStatus calculateReceivingStatus() {
+        if (items.isEmpty()) {
+            return status;
+        }
+        if (isFullyReceived()) {
+            return PurchaseOrderStatus.RECEIVED;
+        }
+        if (getTotalReceivedUnits() > 0) {
+            return PurchaseOrderStatus.PARTIALLY_RECEIVED;
+        }
+        return PurchaseOrderStatus.PLACED;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -210,6 +276,9 @@ public class PurchaseOrder {
                 ", status=" + status +
                 ", createdAt=" + createdAt +
                 ", itemsCount=" + items.size() +
+                ", totalOrderedUnits=" + getTotalUnits() +
+                ", totalReceivedUnits=" + getTotalReceivedUnits() +
+                ", totalRemainingUnits=" + getTotalRemainingUnits() +
                 ", totalAmount=" + getTotalAmount() +
                 '}';
     }

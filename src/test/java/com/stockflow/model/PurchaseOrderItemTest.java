@@ -21,8 +21,34 @@ class PurchaseOrderItemTest {
         assertEquals("SKU-001", item.getProductSku());
         assertEquals("Keyboard", item.getProductName());
         assertEquals(5, item.getOrderedQuantity());
+        assertEquals(0, item.getReceivedQuantity());
+        assertEquals(5, item.getRemainingQuantity());
+        assertFalse(item.isFullyReceived());
         assertEquals(new BigDecimal("25.50"), item.getUnitCost());
         assertEquals(new BigDecimal("127.50"), item.getLineTotal());
+    }
+
+    @Test
+    @DisplayName("Should track received quantity and compute remaining accurately")
+    void shouldTrackReceivedQuantityAndComputeRemaining() {
+        PurchaseOrderItem item = new PurchaseOrderItem(10L, "SKU-001", "Keyboard", 10, new BigDecimal("20.00"));
+
+        assertEquals(10, item.getRemainingQuantity());
+        assertFalse(item.isFullyReceived());
+
+        item.setReceivedQuantity(4);
+        assertEquals(4, item.getReceivedQuantity());
+        assertEquals(6, item.getRemainingQuantity());
+        assertFalse(item.isFullyReceived());
+
+        item.addReceivedQuantity(6);
+        assertEquals(10, item.getReceivedQuantity());
+        assertEquals(0, item.getRemainingQuantity());
+        assertTrue(item.isFullyReceived());
+
+        assertThrows(IllegalArgumentException.class, () -> item.setReceivedQuantity(-1));
+        assertThrows(IllegalArgumentException.class, () -> item.addReceivedQuantity(0));
+        assertThrows(IllegalArgumentException.class, () -> item.addReceivedQuantity(-5));
     }
 
     @Test

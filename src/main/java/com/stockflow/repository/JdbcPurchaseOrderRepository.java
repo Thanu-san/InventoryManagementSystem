@@ -60,8 +60,13 @@ public class JdbcPurchaseOrderRepository implements PurchaseOrderRepository {
             "SELECT id, order_number, supplier_id, status, created_at FROM purchase_orders WHERE status = ? ORDER BY id DESC";
 
     private static final String SELECT_ITEMS_BY_ORDER_ID_SQL =
-            "SELECT id, purchase_order_id, product_id, product_sku, product_name, ordered_quantity, unit_cost " +
-            "FROM purchase_order_items WHERE purchase_order_id = ? ORDER BY id ASC";
+            "SELECT poi.id, poi.purchase_order_id, poi.product_id, poi.product_sku, poi.product_name, poi.ordered_quantity, poi.unit_cost, " +
+            "COALESCE(SUM(ri.quantity), 0) AS received_quantity " +
+            "FROM purchase_order_items poi " +
+            "LEFT JOIN purchase_order_receipt_items ri ON poi.id = ri.purchase_order_item_id " +
+            "WHERE poi.purchase_order_id = ? " +
+            "GROUP BY poi.id, poi.purchase_order_id, poi.product_id, poi.product_sku, poi.product_name, poi.ordered_quantity, poi.unit_cost " +
+            "ORDER BY poi.id ASC";
 
     private static final String UPDATE_STATUS_SQL =
             "UPDATE purchase_orders SET status = ? WHERE id = ?";
@@ -418,8 +423,13 @@ public class JdbcPurchaseOrderRepository implements PurchaseOrderRepository {
             }
         }
 
-        String sql = "SELECT id, purchase_order_id, product_id, product_sku, product_name, ordered_quantity, unit_cost " +
-                     "FROM purchase_order_items WHERE purchase_order_id IN (" + inClause + ") ORDER BY id ASC";
+        String sql = "SELECT poi.id, poi.purchase_order_id, poi.product_id, poi.product_sku, poi.product_name, poi.ordered_quantity, poi.unit_cost, " +
+                     "COALESCE(SUM(ri.quantity), 0) AS received_quantity " +
+                     "FROM purchase_order_items poi " +
+                     "LEFT JOIN purchase_order_receipt_items ri ON poi.id = ri.purchase_order_item_id " +
+                     "WHERE poi.purchase_order_id IN (" + inClause + ") " +
+                     "GROUP BY poi.id, poi.purchase_order_id, poi.product_id, poi.product_sku, poi.product_name, poi.ordered_quantity, poi.unit_cost " +
+                     "ORDER BY poi.id ASC";
 
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             int paramIndex = 1;
@@ -440,6 +450,11 @@ public class JdbcPurchaseOrderRepository implements PurchaseOrderRepository {
     }
 
     private PurchaseOrderItem mapRowToItem(ResultSet rs) throws SQLException {
+        int receivedQuantity = 0;
+        try {
+            receivedQuantity = rs.getInt("received_quantity");
+        } catch (SQLException ignored) {
+        }
         return new PurchaseOrderItem(
                 rs.getLong("id"),
                 rs.getLong("purchase_order_id"),
@@ -447,7 +462,8 @@ public class JdbcPurchaseOrderRepository implements PurchaseOrderRepository {
                 rs.getString("product_sku"),
                 rs.getString("product_name"),
                 rs.getInt("ordered_quantity"),
-                rs.getBigDecimal("unit_cost")
+                rs.getBigDecimal("unit_cost"),
+                receivedQuantity
         );
     }
 }

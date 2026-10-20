@@ -4,9 +4,12 @@ import com.stockflow.exception.ValidationException;
 import com.stockflow.model.Product;
 import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
+import com.stockflow.model.PurchaseOrderReceipt;
 import com.stockflow.model.PurchaseOrderStatus;
+import com.stockflow.model.ReceiptLineInput;
 import com.stockflow.model.Supplier;
 import com.stockflow.repository.ProductRepository;
+import com.stockflow.repository.PurchaseOrderReceiptRepository;
 import com.stockflow.repository.PurchaseOrderRepository;
 import com.stockflow.repository.SupplierRepository;
 
@@ -18,22 +21,30 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Service coordinating purchase order operations and business rules.
- * Handles draft creation, editing line items, placing, cancelling, and validation.
- * Ensures that product stock quantities are never mutated in this phase.
+ * Service coordinating purchase order operations, receiving workflows, and business rules.
+ * Handles draft creation, editing line items, placing, cancelling, receiving deliveries, and validation.
  */
 public class PurchaseOrderService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final AtomicInteger SEQUENCE = new AtomicInteger(1001);
+    private static final AtomicInteger RECEIPT_SEQUENCE = new AtomicInteger(1001);
 
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final SupplierRepository supplierRepository;
     private final ProductRepository productRepository;
+    private final PurchaseOrderReceiptRepository receiptRepository;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
                                 SupplierRepository supplierRepository,
                                 ProductRepository productRepository) {
+        this(purchaseOrderRepository, supplierRepository, productRepository, null);
+    }
+
+    public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
+                                SupplierRepository supplierRepository,
+                                ProductRepository productRepository,
+                                PurchaseOrderReceiptRepository receiptRepository) {
         if (purchaseOrderRepository == null) {
             throw new IllegalArgumentException("PurchaseOrderRepository cannot be null.");
         }
@@ -46,6 +57,7 @@ public class PurchaseOrderService {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.supplierRepository = supplierRepository;
         this.productRepository = productRepository;
+        this.receiptRepository = receiptRepository;
     }
 
     /**
@@ -82,7 +94,7 @@ public class PurchaseOrderService {
 
     /**
      * Adds a new product line item or updates an existing line item on a draft purchase order.
-     * Rejects modifications if the order is already placed or cancelled.
+     * Rejects modifications if the order is already placed, received, or cancelled.
      */
     public PurchaseOrderItem addOrUpdateItem(String orderNumber, String productSku,
                                             int quantity, BigDecimal unitCost) {
@@ -120,7 +132,7 @@ public class PurchaseOrderService {
 
     /**
      * Removes a product line item from a draft purchase order.
-     * Rejects modifications if the order is already placed or cancelled.
+     * Rejects modifications if the order is not in DRAFT.
      */
     public boolean removeItem(String orderNumber, String productSku) {
         PurchaseOrder order = getExistingOrder(orderNumber);
@@ -176,7 +188,9 @@ public class PurchaseOrderService {
     public PurchaseOrder placeOrder(String orderNumber) {
         PurchaseOrder order = getExistingOrder(orderNumber);
 
-        if (order.getStatus() == PurchaseOrderStatus.PLACED) {
+        if (order.getStatus() == PurchaseOrderStatus.PLACED ||
+            order.getStatus() == PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+            order.getStatus() == PurchaseOrderStatus.RECEIVED) {
             throw new ValidationException("Purchase order '" + order.getOrderNumber() + "' is already placed.");
         }
         if (order.getStatus() == PurchaseOrderStatus.CANCELLED) {
@@ -196,11 +210,17 @@ public class PurchaseOrderService {
 
     /**
      * Cancels a draft purchase order.
-     * Rejects cancellation if the order is already placed.
+     * Rejects cancellation if the order is already placed or if any goods have been received.
      */
     public PurchaseOrder cancelOrder(String orderNumber) {
         PurchaseOrder order = getExistingOrder(orderNumber);
 
+        if (order.getStatus() == PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+            order.getStatus() == PurchaseOrderStatus.RECEIVED ||
+            order.getTotalReceivedUnits() > 0) {
+            throw new ValidationException(
+                    "Cannot cancel purchase order '" + order.getOrderNumber() + "' because goods have already been received against it.");
+        }
         if (order.getStatus() == PurchaseOrderStatus.PLACED) {
             throw new ValidationException("Cannot cancel purchase order '" + order.getOrderNumber() + "' because it is already placed.");
         }
@@ -214,6 +234,54 @@ public class PurchaseOrderService {
         }
         order.setStatus(PurchaseOrderStatus.CANCELLED);
         return order;
+    }
+
+    /**
+     * Receives delivery of goods against a PLACED or PARTIALLY_RECEIVED purchase order.
+     * Executes atomic stock increase, audit transaction recording, and receipt history creation.
+     */
+    public PurchaseOrderReceipt receiveGoods(String orderNumber, List<ReceiptLineInput> lines, String notes) {
+        if (receiptRepository == null) {
+            throw new IllegalStateException("PurchaseOrderReceiptRepository is not configured.");
+        }
+        if (orderNumber == null || orderNumber.trim().isEmpty()) {
+            throw new ValidationException("Order number cannot be blank.");
+        }
+        String cleanOrderNumber = orderNumber.trim();
+        PurchaseOrder order = purchaseOrderRepository.findByOrderNumber(cleanOrderNumber)
+                .orElseThrow(() -> new ValidationException("Purchase order not found with order number: " + cleanOrderNumber));
+
+        if (!order.isReceivable()) {
+            if (order.getStatus() == PurchaseOrderStatus.RECEIVED) {
+                throw new ValidationException("Cannot receive goods against purchase order '" + order.getOrderNumber() + "' because it is already fully received.");
+            }
+            throw new ValidationException(
+                    "Cannot receive goods against purchase order '" + order.getOrderNumber() +
+                    "' because its status is " + order.getStatus() + ". Only PLACED or PARTIALLY_RECEIVED orders can be received.");
+        }
+
+        if (lines == null || lines.isEmpty()) {
+            throw new ValidationException("Cannot record receipt with no delivery lines.");
+        }
+
+        String receiptNumber = generateUniqueReceiptNumber();
+        return receiptRepository.recordReceipt(order.getId(), receiptNumber, notes, lines);
+    }
+
+    /**
+     * Retrieves all delivery receipts for a specific purchase order.
+     */
+    public List<PurchaseOrderReceipt> getReceiptsForOrder(String orderNumber) {
+        if (receiptRepository == null) {
+            return List.of();
+        }
+        if (orderNumber == null || orderNumber.trim().isEmpty()) {
+            throw new ValidationException("Order number cannot be blank.");
+        }
+        String cleanOrderNumber = orderNumber.trim();
+        PurchaseOrder order = purchaseOrderRepository.findByOrderNumber(cleanOrderNumber)
+                .orElseThrow(() -> new ValidationException("Purchase order not found with order number: " + cleanOrderNumber));
+        return receiptRepository.findReceiptsByOrderId(order.getId());
     }
 
     /**
@@ -251,6 +319,15 @@ public class PurchaseOrderService {
         do {
             candidate = "PO-" + datePrefix + "-" + SEQUENCE.getAndIncrement();
         } while (purchaseOrderRepository.existsByOrderNumber(candidate));
+        return candidate;
+    }
+
+    private synchronized String generateUniqueReceiptNumber() {
+        String datePrefix = LocalDateTime.now().format(DATE_FORMATTER);
+        String candidate;
+        do {
+            candidate = "REC-" + datePrefix + "-" + RECEIPT_SEQUENCE.getAndIncrement();
+        } while (receiptRepository != null && receiptRepository.findByReceiptNumber(candidate).isPresent());
         return candidate;
     }
 }

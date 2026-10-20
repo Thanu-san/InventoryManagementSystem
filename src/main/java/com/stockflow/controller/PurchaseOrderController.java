@@ -4,19 +4,23 @@ import com.stockflow.exception.DatabaseException;
 import com.stockflow.exception.ValidationException;
 import com.stockflow.model.PurchaseOrder;
 import com.stockflow.model.PurchaseOrderItem;
+import com.stockflow.model.PurchaseOrderReceipt;
+import com.stockflow.model.PurchaseOrderReceiptItem;
 import com.stockflow.model.PurchaseOrderStatus;
+import com.stockflow.model.ReceiptLineInput;
 import com.stockflow.model.Supplier;
 import com.stockflow.service.PurchaseOrderService;
 
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
 
 /**
- * Controller responsible for Purchase Order Management console interactions.
- * Accepts user input, delegates to PurchaseOrderService, and renders formatted order information.
+ * Controller responsible for Purchase Order Management and Receiving console interactions.
+ * Accepts user input, delegates to PurchaseOrderService, and renders formatted order and receipt information.
  */
 public class PurchaseOrderController {
 
@@ -44,7 +48,9 @@ public class PurchaseOrderController {
             System.out.println("5. List Purchase Orders");
             System.out.println("6. Place Purchase Order");
             System.out.println("7. Cancel Purchase Order");
-            System.out.println("8. Back to Main Menu");
+            System.out.println("8. Receive Goods Against Purchase Order");
+            System.out.println("9. View Receiving History for Order");
+            System.out.println("10. Back to Main Menu");
             System.out.print("Select an option: ");
 
             if (!scanner.hasNextLine()) {
@@ -59,7 +65,9 @@ public class PurchaseOrderController {
                 case "5" -> handleListOrders();
                 case "6" -> handlePlaceOrder();
                 case "7" -> handleCancelOrder();
-                case "8" -> back = true;
+                case "8" -> handleReceiveGoods();
+                case "9" -> handleViewReceiptHistory();
+                case "10" -> back = true;
                 default -> System.out.println("Invalid option. Please try again.");
             }
         }
@@ -187,7 +195,7 @@ public class PurchaseOrderController {
 
     private void handleListOrders() {
         System.out.println("\n[ List Purchase Orders ]");
-        System.out.println("Filter options: 1. All Orders | 2. DRAFT | 3. PLACED | 4. CANCELLED");
+        System.out.println("Filter options: 1. All Orders | 2. DRAFT | 3. PLACED | 4. PARTIALLY_RECEIVED | 5. RECEIVED | 6. CANCELLED");
         System.out.print("Select filter (default: 1): ");
 
         if (!scanner.hasNextLine()) return;
@@ -197,7 +205,9 @@ public class PurchaseOrderController {
             List<PurchaseOrder> orders = switch (filterChoice) {
                 case "2" -> purchaseOrderService.getOrdersByStatus(PurchaseOrderStatus.DRAFT);
                 case "3" -> purchaseOrderService.getOrdersByStatus(PurchaseOrderStatus.PLACED);
-                case "4" -> purchaseOrderService.getOrdersByStatus(PurchaseOrderStatus.CANCELLED);
+                case "4" -> purchaseOrderService.getOrdersByStatus(PurchaseOrderStatus.PARTIALLY_RECEIVED);
+                case "5" -> purchaseOrderService.getOrdersByStatus(PurchaseOrderStatus.RECEIVED);
+                case "6" -> purchaseOrderService.getOrdersByStatus(PurchaseOrderStatus.CANCELLED);
                 default -> purchaseOrderService.getAllOrders();
             };
 
@@ -206,23 +216,24 @@ public class PurchaseOrderController {
                 return;
             }
 
-            System.out.println("\n" + "=".repeat(95));
-            System.out.println(String.format("%-18s | %-12s | %-10s | %-6s | %-8s | %-12s | %s",
-                    "Order Number", "Supplier", "Status", "Lines", "Units", "Total ($)", "Created At"));
-            System.out.println("-".repeat(95));
+            System.out.println("\n" + "=".repeat(110));
+            System.out.println(String.format("%-18s | %-12s | %-18s | %-6s | %-8s | %-8s | %-12s | %s",
+                    "Order Number", "Supplier", "Status", "Lines", "Ordered", "Received", "Total ($)", "Created At"));
+            System.out.println("-".repeat(110));
 
             for (PurchaseOrder po : orders) {
                 String supplierDisplay = resolveSupplierCode(po);
-                System.out.println(String.format("%-18s | %-12s | %-10s | %-6d | %-8d | %-12.2f | %s",
+                System.out.println(String.format("%-18s | %-12s | %-18s | %-6d | %-8d | %-8d | %-12.2f | %s",
                         po.getOrderNumber(),
                         supplierDisplay,
                         po.getStatus(),
                         po.getItems().size(),
                         po.getTotalUnits(),
+                        po.getTotalReceivedUnits(),
                         po.getTotalAmount(),
                         po.getCreatedAt().format(DATE_FORMATTER)));
             }
-            System.out.println("=".repeat(95));
+            System.out.println("=".repeat(110));
             System.out.println("Total Orders Listed: " + orders.size());
         } catch (ValidationException e) {
             System.out.println("Validation Error: " + e.getMessage());
@@ -295,39 +306,189 @@ public class PurchaseOrderController {
         }
     }
 
+    private void handleReceiveGoods() {
+        System.out.println("\n[ Receive Goods Against Purchase Order ]");
+
+        Optional<String> orderNumOpt = promptNonBlankString("Enter Order Number: ", "Order number");
+        if (orderNumOpt.isEmpty()) return;
+
+        try {
+            Optional<PurchaseOrder> orderOpt = purchaseOrderService.getOrderByNumber(orderNumOpt.get());
+            if (orderOpt.isEmpty()) {
+                System.out.println("Purchase order not found with order number: " + orderNumOpt.get());
+                return;
+            }
+
+            PurchaseOrder order = orderOpt.get();
+            if (!order.isReceivable()) {
+                if (order.getStatus() == PurchaseOrderStatus.RECEIVED) {
+                    System.out.println("Order '" + order.getOrderNumber() + "' has already been fully received.");
+                } else {
+                    System.out.println("Cannot receive goods. Order status is: " + order.getStatus() +
+                            ". Only PLACED or PARTIALLY_RECEIVED orders can receive goods.");
+                }
+                return;
+            }
+
+            printOrderDetails(order);
+
+            List<ReceiptLineInput> linesToReceive = new ArrayList<>();
+            for (PurchaseOrderItem item : order.getItems()) {
+                int remaining = item.getRemainingQuantity();
+                if (remaining <= 0) {
+                    continue;
+                }
+
+                System.out.println(String.format("\nLine: %s - %s | Ordered: %d | Already Received: %d | Remaining: %d",
+                        item.getProductSku(), item.getProductName(), item.getOrderedQuantity(), item.getReceivedQuantity(), remaining));
+
+                while (true) {
+                    Optional<String> inputOpt = readLine(String.format("Enter quantity to receive now (0 to skip, max %d): ", remaining));
+                    if (inputOpt.isEmpty()) return;
+                    String input = inputOpt.get().trim();
+                    if (input.isEmpty() || input.equals("0")) {
+                        break;
+                    }
+                    try {
+                        int qty = Integer.parseInt(input);
+                        if (qty < 0) {
+                            System.out.println("Error: Quantity cannot be negative. Enter 0 to skip.");
+                        } else if (qty > remaining) {
+                            System.out.println("Error: Quantity exceeds remaining amount (" + remaining + "). Please try again.");
+                        } else {
+                            linesToReceive.add(new ReceiptLineInput(item.getId(), qty));
+                            break;
+                        }
+                    } catch (NumberFormatException e) {
+                        System.out.println("Error: Invalid number format. Please enter a valid integer.");
+                    }
+                }
+            }
+
+            if (linesToReceive.isEmpty()) {
+                System.out.println("No items selected for delivery. Receiving aborted.");
+                return;
+            }
+
+            Optional<String> notesOpt = readLine("Enter delivery / receipt notes (optional, press Enter to skip): ");
+            String notes = notesOpt.map(String::trim).filter(s -> !s.isEmpty()).orElse(null);
+
+            // Review proposed delivery
+            System.out.println("\n--- Proposed Delivery Summary ---");
+            for (ReceiptLineInput line : linesToReceive) {
+                PurchaseOrderItem item = order.findItemById(line.purchaseOrderItemId()).orElseThrow();
+                System.out.println(String.format("  SKU: %-15s | Product: %-25s | Receiving: %d",
+                        item.getProductSku(), item.getProductName(), line.quantity()));
+            }
+
+            while (true) {
+                System.out.print("Confirm receiving goods? (Y/N): ");
+                if (!scanner.hasNextLine()) return;
+                String confirm = scanner.nextLine().trim();
+                if (confirm.equalsIgnoreCase("y")) {
+                    PurchaseOrderReceipt receipt = purchaseOrderService.receiveGoods(order.getOrderNumber(), linesToReceive, notes);
+                    System.out.println("Success: Goods successfully received! Receipt Number: " + receipt.getReceiptNumber());
+
+                    Optional<PurchaseOrder> updatedOrder = purchaseOrderService.getOrderByNumber(order.getOrderNumber());
+                    updatedOrder.ifPresent(po -> System.out.println("Updated Purchase Order Status: " + po.getStatus()));
+                    break;
+                } else if (confirm.equalsIgnoreCase("n")) {
+                    System.out.println("Receiving aborted. No stock changes applied.");
+                    break;
+                } else {
+                    System.out.println("Please enter Y or N.");
+                }
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private void handleViewReceiptHistory() {
+        System.out.println("\n[ View Receiving History for Order ]");
+
+        Optional<String> orderNumOpt = promptNonBlankString("Enter Order Number: ", "Order number");
+        if (orderNumOpt.isEmpty()) return;
+
+        try {
+            List<PurchaseOrderReceipt> receipts = purchaseOrderService.getReceiptsForOrder(orderNumOpt.get());
+            if (receipts.isEmpty()) {
+                System.out.println("No receiving history found for order: " + orderNumOpt.get());
+                return;
+            }
+
+            System.out.println("\n" + "=".repeat(85));
+            System.out.println("Receiving History for Order: " + orderNumOpt.get());
+            System.out.println("=".repeat(85));
+
+            int receiptIndex = 1;
+            for (PurchaseOrderReceipt r : receipts) {
+                System.out.println(String.format("Delivery #%d | Receipt Number: %s | Date: %s | Notes: %s",
+                        receiptIndex++,
+                        r.getReceiptNumber(),
+                        r.getReceiptDate().format(DATE_FORMATTER),
+                        r.getNotes() != null ? r.getNotes() : "-"));
+                System.out.println("-".repeat(85));
+                System.out.println(String.format("  %-10s | %-12s | %-12s | %s",
+                        "Item ID", "Product ID", "Quantity", "Inventory Tx ID"));
+                for (PurchaseOrderReceiptItem ri : r.getItems()) {
+                    System.out.println(String.format("  %-10d | %-12d | %-12d | %s",
+                            ri.getPurchaseOrderItemId(),
+                            ri.getProductId(),
+                            ri.getQuantity(),
+                            ri.getInventoryTransactionId() != null ? "#" + ri.getInventoryTransactionId() : "-"));
+                }
+                System.out.println(String.format("  Total Quantity Received in this delivery: %d units", r.getTotalReceivedQuantity()));
+                System.out.println("=".repeat(85));
+            }
+        } catch (ValidationException e) {
+            System.out.println("Validation Error: " + e.getMessage());
+        } catch (DatabaseException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
     private void printOrderDetails(PurchaseOrder order) {
         String supplierDisplay = resolveSupplierCode(order);
-        System.out.println("\n" + "=".repeat(80));
+        System.out.println("\n" + "=".repeat(100));
         System.out.println("Purchase Order Details");
-        System.out.println("=".repeat(80));
+        System.out.println("=".repeat(100));
         System.out.println("Order Number : " + order.getOrderNumber());
         System.out.println("Supplier     : " + supplierDisplay);
         System.out.println("Status       : " + order.getStatus());
         System.out.println("Created At   : " + order.getCreatedAt().format(DATE_FORMATTER));
-        System.out.println("-".repeat(80));
+        System.out.println("-".repeat(100));
 
         List<PurchaseOrderItem> items = order.getItems();
         if (items.isEmpty()) {
             System.out.println("No line items currently added to this order.");
         } else {
-            System.out.println(String.format("%-4s | %-15s | %-25s | %-6s | %-10s | %s",
-                    "#", "SKU", "Product Name", "Qty", "Unit Cost", "Line Total"));
-            System.out.println("-".repeat(80));
+            System.out.println(String.format("%-4s | %-15s | %-25s | %-7s | %-8s | %-9s | %-10s | %s",
+                    "#", "SKU", "Product Name", "Ordered", "Received", "Remaining", "Unit Cost", "Line Total"));
+            System.out.println("-".repeat(100));
             int index = 1;
             for (PurchaseOrderItem item : items) {
-                System.out.println(String.format("%-4d | %-15s | %-25s | %-6d | $%-9.2f | $%.2f",
+                System.out.println(String.format("%-4d | %-15s | %-25s | %-7d | %-8d | %-9d | $%-9.2f | $%.2f",
                         index++,
                         item.getProductSku(),
                         item.getProductName(),
                         item.getOrderedQuantity(),
+                        item.getReceivedQuantity(),
+                        item.getRemainingQuantity(),
                         item.getUnitCost(),
                         item.getLineTotal()));
             }
         }
-        System.out.println("=".repeat(80));
-        System.out.println(String.format("Total Units: %d | Total Order Amount: $%.2f",
-                order.getTotalUnits(), order.getTotalAmount()));
-        System.out.println("=".repeat(80));
+        System.out.println("=".repeat(100));
+        System.out.println(String.format("Total Units Ordered: %d | Total Received: %d | Total Remaining: %d | Total Amount: $%.2f",
+                order.getTotalUnits(), order.getTotalReceivedUnits(), order.getTotalRemainingUnits(), order.getTotalAmount()));
+        System.out.println("=".repeat(100));
     }
 
     private String resolveSupplierCode(PurchaseOrder order) {

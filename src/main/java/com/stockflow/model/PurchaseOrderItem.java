@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * Represents a single line item within a purchase order.
  * Snapshots the product's SKU and name at order time to preserve historical integrity,
- * and maintains the agreed unit purchase cost and ordered quantity.
+ * and maintains the agreed unit purchase cost, ordered quantity, and cumulative received quantity.
  */
 public class PurchaseOrderItem {
 
@@ -17,13 +17,14 @@ public class PurchaseOrderItem {
     private final String productName;
     private int orderedQuantity;
     private BigDecimal unitCost;
+    private int receivedQuantity = 0;
 
     /**
      * Constructor for creating a new line item before persistence.
      */
     public PurchaseOrderItem(Long productId, String productSku, String productName,
                              int orderedQuantity, BigDecimal unitCost) {
-        this(null, null, productId, productSku, productName, orderedQuantity, unitCost);
+        this(null, null, productId, productSku, productName, orderedQuantity, unitCost, 0);
     }
 
     /**
@@ -31,14 +32,23 @@ public class PurchaseOrderItem {
      */
     public PurchaseOrderItem(Long purchaseOrderId, Long productId, String productSku,
                              String productName, int orderedQuantity, BigDecimal unitCost) {
-        this(null, purchaseOrderId, productId, productSku, productName, orderedQuantity, unitCost);
+        this(null, purchaseOrderId, productId, productSku, productName, orderedQuantity, unitCost, 0);
     }
 
     /**
-     * Full constructor for reconstituting an existing line item from storage.
+     * Reconstitution constructor without explicit receivedQuantity (defaults to 0).
      */
     public PurchaseOrderItem(Long id, Long purchaseOrderId, Long productId, String productSku,
                              String productName, int orderedQuantity, BigDecimal unitCost) {
+        this(id, purchaseOrderId, productId, productSku, productName, orderedQuantity, unitCost, 0);
+    }
+
+    /**
+     * Full constructor for reconstituting an existing line item from storage with receipt tracking.
+     */
+    public PurchaseOrderItem(Long id, Long purchaseOrderId, Long productId, String productSku,
+                             String productName, int orderedQuantity, BigDecimal unitCost,
+                             int receivedQuantity) {
         if (productId == null || productId <= 0) {
             throw new IllegalArgumentException("Product ID must be greater than zero.");
         }
@@ -58,6 +68,7 @@ public class PurchaseOrderItem {
         this.productName = productName.trim();
         setOrderedQuantity(orderedQuantity);
         setUnitCost(unitCost);
+        setReceivedQuantity(receivedQuantity);
     }
 
     // --- ID: Can only be assigned once upon persistence ---
@@ -123,6 +134,38 @@ public class PurchaseOrderItem {
         this.unitCost = unitCost;
     }
 
+    public int getReceivedQuantity() {
+        return receivedQuantity;
+    }
+
+    public void setReceivedQuantity(int receivedQuantity) {
+        if (receivedQuantity < 0) {
+            throw new IllegalArgumentException("Received quantity cannot be negative.");
+        }
+        this.receivedQuantity = receivedQuantity;
+    }
+
+    public void addReceivedQuantity(int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Quantity to add must be greater than zero.");
+        }
+        this.receivedQuantity += quantity;
+    }
+
+    /**
+     * Calculates the remaining quantity to be received: orderedQuantity - receivedQuantity.
+     */
+    public int getRemainingQuantity() {
+        return Math.max(0, orderedQuantity - receivedQuantity);
+    }
+
+    /**
+     * Checks if this line item has been fully fulfilled.
+     */
+    public boolean isFullyReceived() {
+        return receivedQuantity >= orderedQuantity;
+    }
+
     /**
      * Calculates the line item total: unitCost * orderedQuantity.
      */
@@ -153,6 +196,8 @@ public class PurchaseOrderItem {
                 ", productSku='" + productSku + '\'' +
                 ", productName='" + productName + '\'' +
                 ", orderedQuantity=" + orderedQuantity +
+                ", receivedQuantity=" + receivedQuantity +
+                ", remainingQuantity=" + getRemainingQuantity() +
                 ", unitCost=" + unitCost +
                 ", lineTotal=" + getLineTotal() +
                 '}';

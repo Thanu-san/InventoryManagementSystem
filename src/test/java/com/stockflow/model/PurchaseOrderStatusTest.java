@@ -9,11 +9,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class PurchaseOrderStatusTest {
 
     @Test
-    @DisplayName("Should contain DRAFT, PLACED, and CANCELLED statuses")
+    @DisplayName("Should contain all expected lifecycle statuses")
     void shouldContainExpectedStatuses() {
-        assertEquals(3, PurchaseOrderStatus.values().length);
+        assertEquals(5, PurchaseOrderStatus.values().length);
         assertEquals(PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.valueOf("DRAFT"));
         assertEquals(PurchaseOrderStatus.PLACED, PurchaseOrderStatus.valueOf("PLACED"));
+        assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, PurchaseOrderStatus.valueOf("PARTIALLY_RECEIVED"));
+        assertEquals(PurchaseOrderStatus.RECEIVED, PurchaseOrderStatus.valueOf("RECEIVED"));
         assertEquals(PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.valueOf("CANCELLED"));
     }
 }
