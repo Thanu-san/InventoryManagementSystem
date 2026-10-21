@@ -50,9 +50,9 @@ public class Main {
         PurchaseOrderService purchaseOrderService = new PurchaseOrderService(purchaseOrderRepository, supplierRepository, productRepository, receiptRepository, reportRepository, returnRepository);
         PurchaseOrderController purchaseOrderController = new PurchaseOrderController(purchaseOrderService, scanner);
 
-        System.out.println("============================================");
-        System.out.println("   Welcome to StockFlow Management System   ");
-        System.out.println("============================================");
+        System.out.println("================================================");
+        System.out.println("   Welcome to StockFlow v1.0 Management System   ");
+        System.out.println("================================================");
 
         boolean running = true;
         while (running) {
