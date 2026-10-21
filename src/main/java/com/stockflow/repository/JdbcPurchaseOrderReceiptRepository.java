@@ -195,27 +195,44 @@ public class JdbcPurchaseOrderReceiptRepository implements PurchaseOrderReceiptR
 
             PurchaseOrderReceipt receipt = new PurchaseOrderReceipt(receiptId, cleanReceiptNumber, orderId, receiptDate, notes, null);
 
-            // 6. Process each received line: product stock update, inventory transaction, receipt item
+            // 6. Pre-lock all involved products in strictly ascending order by ID to prevent circular-wait deadlocks
+            List<Long> productIdsToLock = lines.stream()
+                    .map(line -> orderItemsMap.get(line.purchaseOrderItemId()).productId())
+                    .distinct()
+                    .sorted()
+                    .toList();
+
+            for (Long prodId : productIdsToLock) {
+                try (PreparedStatement lockProdStmt = connection.prepareStatement(LOCK_PRODUCT_FOR_UPDATE_SQL)) {
+                    lockProdStmt.setLong(1, prodId);
+                    try (ResultSet rs = lockProdStmt.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new ValidationException("Product not found with ID: " + prodId);
+                        }
+                    }
+                }
+            }
+
+            // 7. Process each received line: product stock update, inventory transaction, receipt item
             for (ReceiptLineInput line : lines) {
                 OrderItemInfo itemInfo = orderItemsMap.get(line.purchaseOrderItemId());
                 long productId = itemInfo.productId();
                 int qty = line.quantity();
 
-                // 6a. Lock product and verify capacity
-                try (PreparedStatement lockProdStmt = connection.prepareStatement(LOCK_PRODUCT_FOR_UPDATE_SQL)) {
-                    lockProdStmt.setLong(1, productId);
-                    try (ResultSet rs = lockProdStmt.executeQuery()) {
-                        if (!rs.next()) {
-                            throw new ValidationException("Product not found with ID: " + productId);
-                        }
-                        long currentQty = rs.getInt("quantity");
-                        if (currentQty + (long) qty > Integer.MAX_VALUE) {
-                            throw new ValidationException("Stock In would cause product quantity to exceed maximum capacity for SKU: " + itemInfo.sku());
+                // 7a. Verify product capacity (lock already held)
+                try (PreparedStatement checkCapStmt = connection.prepareStatement("SELECT quantity FROM products WHERE id = ?")) {
+                    checkCapStmt.setLong(1, productId);
+                    try (ResultSet rs = checkCapStmt.executeQuery()) {
+                        if (rs.next()) {
+                            long currentQty = rs.getInt("quantity");
+                            if (currentQty + (long) qty > Integer.MAX_VALUE) {
+                                throw new ValidationException("Stock In would cause product quantity to exceed maximum capacity for SKU: " + itemInfo.sku());
+                            }
                         }
                     }
                 }
 
-                // 6b. Update product stock
+                // 7b. Update product stock
                 try (PreparedStatement updateStockStmt = connection.prepareStatement(UPDATE_PRODUCT_STOCK_SQL)) {
                     updateStockStmt.setInt(1, qty);
                     updateStockStmt.setLong(2, productId);

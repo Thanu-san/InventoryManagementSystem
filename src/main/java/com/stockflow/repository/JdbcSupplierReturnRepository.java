@@ -133,11 +133,15 @@ public class JdbcSupplierReturnRepository implements SupplierReturnRepository {
                 throw new ValidationException("Cannot return goods against CANCELLED purchase order: " + orderNumber);
             }
 
-            // 2. Lock and load requested receipt items
+            // 2. Lock and load requested receipt items in strictly ascending order by receipt item ID
             Map<Long, ReceiptItemInfo> receiptItemMap = new HashMap<>();
             Set<Long> seenReceiptItemIds = new HashSet<>();
 
-            for (ReturnLineInput line : lines) {
+            List<ReturnLineInput> sortedLines = lines.stream()
+                    .sorted(java.util.Comparator.comparing(ReturnLineInput::purchaseOrderReceiptItemId))
+                    .toList();
+
+            for (ReturnLineInput line : sortedLines) {
                 if (line == null) {
                     throw new ValidationException("Return line cannot be null.");
                 }
@@ -179,8 +183,28 @@ public class JdbcSupplierReturnRepository implements SupplierReturnRepository {
                 }
             }
 
-            // 4. Validate returnable quantities and available stock for all lines
-            for (ReturnLineInput line : lines) {
+            // 4. Pre-lock all involved products in strictly ascending order by ID to prevent deadlocks
+            List<Long> productIdsToLock = sortedLines.stream()
+                    .map(line -> receiptItemMap.get(line.purchaseOrderReceiptItemId()).productId())
+                    .distinct()
+                    .sorted()
+                    .toList();
+
+            Map<Long, Integer> currentStockMap = new HashMap<>();
+            for (Long prodId : productIdsToLock) {
+                try (PreparedStatement lockProdStmt = connection.prepareStatement(LOCK_PRODUCT_FOR_UPDATE_SQL)) {
+                    lockProdStmt.setLong(1, prodId);
+                    try (ResultSet rs = lockProdStmt.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new ValidationException("Product not found with ID: " + prodId);
+                        }
+                        currentStockMap.put(prodId, rs.getInt("quantity"));
+                    }
+                }
+            }
+
+            // 5. Validate returnable quantities and available stock for all lines
+            for (ReturnLineInput line : sortedLines) {
                 ReceiptItemInfo info = receiptItemMap.get(line.purchaseOrderReceiptItemId());
                 int previouslyReturned = cumulativeReturnedMap.getOrDefault(info.id(), 0);
                 int returnable = Math.max(0, info.originalQty() - previouslyReturned);
@@ -191,20 +215,11 @@ public class JdbcSupplierReturnRepository implements SupplierReturnRepository {
                             returnable + ") for product: " + info.sku());
                 }
 
-                // Lock product and check current stock
-                try (PreparedStatement lockProdStmt = connection.prepareStatement(LOCK_PRODUCT_FOR_UPDATE_SQL)) {
-                    lockProdStmt.setLong(1, info.productId());
-                    try (ResultSet rs = lockProdStmt.executeQuery()) {
-                        if (!rs.next()) {
-                            throw new ValidationException("Product not found with ID: " + info.productId());
-                        }
-                        int currentStock = rs.getInt("quantity");
-                        if (currentStock < line.quantity()) {
-                            throw new ValidationException(
-                                    "Insufficient stock to return product '" + info.sku() +
-                                    "'. Available in stock: " + currentStock + ", Requested return: " + line.quantity());
-                        }
-                    }
+                int currentStock = currentStockMap.getOrDefault(info.productId(), 0);
+                if (currentStock < line.quantity()) {
+                    throw new ValidationException(
+                            "Insufficient stock to return product '" + info.sku() +
+                            "'. Available in stock: " + currentStock + ", Requested return: " + line.quantity());
                 }
             }
 
